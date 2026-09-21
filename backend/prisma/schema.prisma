@@ -1,0 +1,376 @@
+// =============================================================================
+// Pro Accounting — modelo de dados
+// =============================================================================
+// Convenções adotadas:
+//
+//  • Campos em camelCase no código, colunas em snake_case no banco (@map).
+//    Isso mantém o TypeScript idiomático sem abrir mão de um schema SQL limpo.
+//  • Ids são cuid(): ordenáveis por criação, não sequenciais e não vazam
+//    volume de registros para fora (um id numérico entregaria isso).
+//  • Dinheiro é SEMPRE Decimal(12,2). Float/Double causam erro de centavo e
+//    não têm lugar em um sistema financeiro.
+//  • Datas de calendário (vencimento, emissão) são @db.Date — sem hora e sem
+//    fuso, para que "vence dia 10" não vire dia 9 às 21h em UTC-3.
+//  • onDelete: Restrict no histórico financeiro. Um sistema contábil não pode
+//    perder faturas porque alguém apagou um cliente.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+/// Perfis de acesso. A tradução para pt-BR acontece na interface.
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ContractStatus {
+  ACTIVE
+  PENDING
+  RENEWAL
+  CLOSED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  PIX
+  BOLETO
+  TRANSFER
+  CASH
+  CARD
+  OTHER
+}
+
+/// Tipo de evento registrado no histórico do cliente.
+enum ClientHistoryAction {
+  CREATED
+  UPDATED
+  ACTIVATED
+  DEACTIVATED
+}
+
+/// Tipo de evento registrado no histórico da fatura.
+///
+/// SETTLED é separado de PAYMENT_ADDED de propósito: um pagamento parcial
+/// acrescenta valor sem quitar nada, e só o lançamento que zera o saldo merece
+/// a linha "fatura quitada". Sem essa distinção, três pagamentos parciais
+/// produziriam três eventos idênticos e o histórico não diria em qual deles a
+/// dívida acabou.
+enum InvoiceHistoryAction {
+  CREATED
+  UPDATED
+  CANCELLED
+  REOPENED
+  PAYMENT_ADDED
+  PAYMENT_REMOVED
+  SETTLED
+}
+
+// -----------------------------------------------------------------------------
+// Usuários
+// -----------------------------------------------------------------------------
+
+model User {
+  id String @id @default(cuid())
+
+  name String @db.VarChar(120)
+
+  /// Sempre gravado em minúsculas (normalizado na camada de serviço) para que
+  /// a unicidade não possa ser furada por "Admin@x.com" vs "admin@x.com".
+  email String @unique @db.VarChar(180)
+
+  /// Hash bcrypt. O texto puro da senha nunca é persistido nem logado.
+  password String @db.VarChar(255)
+
+  role UserRole @default(EMPLOYEE)
+
+  /// Desativação lógica. Usuário inativo não autentica, mas continua
+  /// referenciável pelos pagamentos que registrou.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  registeredPayments Payment[]        @relation("PaymentRegisteredBy")
+  clientHistory      ClientHistory[]  @relation("ClientHistoryAuthor")
+  invoiceHistory     InvoiceHistory[] @relation("InvoiceHistoryAuthor")
+
+  @@index([role])
+  @@index([active])
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// Clientes
+// -----------------------------------------------------------------------------
+
+model Client {
+  id String @id @default(cuid())
+
+  /// Nome ou razão social.
+  name String @db.VarChar(180)
+
+  /// Nome fantasia (só faz sentido para pessoa jurídica).
+  companyName String? @map("company_name") @db.VarChar(180)
+
+  /// Somente dígitos: 11 para CPF, 14 para CNPJ. A máscara é responsabilidade
+  /// da interface — guardar formatado quebraria a busca e a unicidade.
+  cpfCnpj String @unique @map("cpf_cnpj") @db.VarChar(14)
+
+  /// Inscrição Estadual. Texto livre porque o formato varia por UF, e
+  /// "ISENTO" é um valor legítimo para quem não contribui de ICMS.
+  stateRegistration String? @map("state_registration") @db.VarChar(20)
+
+  email    String? @db.VarChar(180)
+  phone    String? @db.VarChar(20)
+  whatsapp String? @db.VarChar(20)
+
+  // --- Endereço ------------------------------------------------------------
+  // Desmembrado em vez de um campo único de texto livre. O motivo é prático:
+  // guia de recolhimento, nota fiscal e declaração acessória exigem logradouro
+  // e número em campos separados. Guardar "Rua X, 123 - Centro" numa string só
+  // obrigaria a separar isso por expressão regular na hora de emitir — e
+  // endereço digitado à mão nunca segue um padrão confiável.
+  street       String? @db.VarChar(180)
+  number       String? @db.VarChar(20)
+  complement   String? @db.VarChar(120)
+  neighborhood String? @db.VarChar(120)
+  city         String? @db.VarChar(120)
+  state        String? @db.VarChar(2)
+
+  /// Somente dígitos (8 caracteres).
+  zipCode String? @map("zip_code") @db.VarChar(8)
+
+  status ClientStatus @default(ACTIVE)
+  notes  String?      @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  contracts Contract[]
+  invoices  Invoice[]
+  history   ClientHistory[]
+
+  @@index([status])
+  @@index([name])
+  @@index([email])
+  @@index([createdAt])
+  @@map("clients")
+}
+
+// -----------------------------------------------------------------------------
+// Histórico de alterações do cliente
+// -----------------------------------------------------------------------------
+
+/// Registro de auditoria: uma linha por CAMPO alterado.
+///
+/// Guardar campo a campo, em vez de um retrato do registro inteiro a cada
+/// edição, é o que permite a tela responder "quem mudou o telefone deste
+/// cliente, e qual era o anterior" sem comparar dois JSONs grandes. O custo é
+/// mais linhas; o benefício é uma consulta trivial e um histórico legível.
+model ClientHistory {
+  id String @id @default(cuid())
+
+  clientId String @map("client_id")
+
+  /// Autor da alteração. Nulo apenas se o usuário for removido do sistema —
+  /// o histórico sobrevive à conta, porque é registro de auditoria.
+  userId String? @map("user_id")
+
+  action ClientHistoryAction
+
+  /// Nome do campo alterado. Nulo em CREATED/ACTIVATED/DEACTIVATED, que são
+  /// eventos do registro como um todo, não de um campo.
+  field String? @db.VarChar(60)
+
+  oldValue String? @map("old_value") @db.Text
+  newValue String? @map("new_value") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user   User?  @relation("ClientHistoryAuthor", fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// Serve à consulta da aba Histórico: filtra por cliente, ordena por data.
+  @@index([clientId, createdAt])
+  @@index([userId])
+  @@map("client_history")
+}
+
+// -----------------------------------------------------------------------------
+// Contratos
+// -----------------------------------------------------------------------------
+
+model Contract {
+  id String @id @default(cuid())
+
+  clientId String @map("client_id")
+
+  /// Número visível ao usuário, ex.: "CT-2026-0001".
+  number String @unique @db.VarChar(30)
+
+  serviceType String @map("service_type") @db.VarChar(120)
+
+  startDate DateTime @map("start_date") @db.Date
+
+  /// Nulo = contrato por prazo indeterminado.
+  endDate DateTime? @map("end_date") @db.Date
+
+  monthlyValue Decimal @map("monthly_value") @db.Decimal(12, 2)
+
+  /// Dia do mês do vencimento (1 a 31). Faixa validada na API; a constraint
+  /// CHECK no banco entra na Etapa 2.
+  dueDay Int @map("due_day") @db.SmallInt
+
+  status ContractStatus @default(ACTIVE)
+  notes  String?        @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  client   Client    @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoices Invoice[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([endDate])
+  /// Serve à consulta "contratos vencendo": filtra status e ordena por término.
+  @@index([status, endDate])
+  @@map("contracts")
+}
+
+// -----------------------------------------------------------------------------
+// Faturas
+// -----------------------------------------------------------------------------
+
+model Invoice {
+  id String @id @default(cuid())
+
+  clientId String @map("client_id")
+
+  /// Opcional de propósito: o escritório também emite faturas avulsas, sem
+  /// contrato (uma certidão, um serviço pontual).
+  contractId String? @map("contract_id")
+
+  /// Número visível ao usuário, ex.: "FAT-2026-00001".
+  number String @unique @db.VarChar(30)
+
+  description String? @db.VarChar(255)
+
+  amount Decimal @db.Decimal(12, 2)
+
+  issueDate DateTime @map("issue_date") @db.Date
+  dueDate   DateTime @map("due_date") @db.Date
+
+  status InvoiceStatus @default(PENDING)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  client   Client           @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  payments Payment[]
+  history  InvoiceHistory[]
+
+  @@index([clientId])
+  @@index([contractId])
+  @@index([status])
+  @@index([dueDate])
+  /// Serve ao painel e à listagem: "pendentes vencendo/vencidas por data".
+  @@index([status, dueDate])
+  @@index([issueDate])
+  @@map("invoices")
+}
+
+// -----------------------------------------------------------------------------
+// Histórico de alterações da fatura
+// -----------------------------------------------------------------------------
+
+/// Auditoria da fatura — uma linha por evento.
+///
+/// Mais importante aqui do que no cliente: uma fatura é um documento de
+/// cobrança. Quando o cliente questiona um valor, alguém precisa conseguir
+/// responder quem alterou o quê, quando, e quem lançou cada pagamento. Guardar
+/// campo a campo é o que permite responder isso sem comparar dois retratos
+/// inteiros do registro.
+model InvoiceHistory {
+  id String @id @default(cuid())
+
+  invoiceId String @map("invoice_id")
+
+  /// Autor do evento. Nulo apenas se o usuário for removido do sistema — o
+  /// histórico sobrevive à conta, porque é registro de auditoria.
+  userId String? @map("user_id")
+
+  action InvoiceHistoryAction
+
+  /// Nome do campo alterado. Nulo nos eventos que são do documento como um
+  /// todo (criação, cancelamento, pagamento).
+  field String? @db.VarChar(60)
+
+  oldValue String? @map("old_value") @db.Text
+  newValue String? @map("new_value") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User?   @relation("InvoiceHistoryAuthor", fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// Serve à consulta da aba Histórico: filtra por fatura, ordena por data.
+  @@index([invoiceId, createdAt])
+  @@index([userId])
+  @@map("invoice_history")
+}
+
+// -----------------------------------------------------------------------------
+// Pagamentos
+// -----------------------------------------------------------------------------
+
+model Payment {
+  id String @id @default(cuid())
+
+  invoiceId String @map("invoice_id")
+
+  amount Decimal @db.Decimal(12, 2)
+
+  paymentDate   DateTime      @map("payment_date") @db.Date
+  paymentMethod PaymentMethod @map("payment_method")
+
+  /// Quem registrou o pagamento — exigência de auditoria. Por isso o usuário
+  /// não pode ser excluído enquanto houver pagamentos vinculados a ele.
+  registeredBy String @map("registered_by")
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User    @relation("PaymentRegisteredBy", fields: [registeredBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([invoiceId])
+  @@index([registeredBy])
+  @@index([paymentDate])
+  @@map("payments")
+}

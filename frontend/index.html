@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- Gerado a partir do símbolo do logo. Ao trocar o arquivo, o favicon
+         acompanha automaticamente (ver src/assets/LOGO.md). -->
+    <link rel="icon" type="image/svg+xml" href="/src/assets/logo-mark.svg" />
+
+    <title>Pro Accounting — Gestão Contábil</title>
+    <meta
+      name="description"
+      content="Sistema de gestão de clientes, contratos e faturas da Pro Accounting."
+    />
+
+    <!-- Painel interno: não deve aparecer em buscadores. -->
+    <meta name="robots" content="noindex, nofollow" />
+
+    <meta name="theme-color" content="#1E3A8A" />
+
+    <!-- Inter. O preconnect evita o atraso de handshake antes do CSS da fonte.
+         Se o carregamento falhar, a pilha de fallback em tailwind.config.js
+         assume e o layout não quebra. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

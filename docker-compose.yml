@@ -1,0 +1,48 @@
+# PostgreSQL para desenvolvimento local — ALTERNATIVA ao PostgreSQL instalado
+# na máquina. Use um OU outro, não os dois na mesma porta.
+#
+# A porta padrão aqui é 5433, não 5432, justamente para poder conviver com uma
+# instalação nativa do PostgreSQL sem conflito.
+#
+# As credenciais vêm do arquivo .env na raiz do projeto (copie de .env.example).
+# NENHUMA senha real deve ser escrita neste arquivo.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: pro-accounting-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pro_accounting}
+      POSTGRES_USER: ${POSTGRES_USER:-pro_accounting}
+      # Sem valor padrão: o compose falha de propósito se a senha não estiver no .env.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no arquivo .env da raiz}
+      # Locale deixado no padrão da imagem de propósito.
+      #
+      # A imagem alpine é baseada em musl e não traz o locale pt_BR.UTF-8;
+      # forçá-lo faria o initdb falhar na primeira subida. O efeito prático é
+      # que "ORDER BY nome" ordena por byte, então "Ávila" cai depois de
+      # "Zurique". Isso só passa a importar quando a listagem de clientes for
+      # construída (Etapa 2), e lá a ordenação sensível a acento será resolvida
+      # com collation ICU na coluna, que o PostgreSQL 16 suporta nativamente e
+      # não depende de locale do sistema operacional.
+    ports:
+      # 5433 na máquina -> 5432 dentro do container.
+      - '${POSTGRES_PORT:-5433}:5432'
+    volumes:
+      - pro-accounting-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # O backend só deve migrar depois que o banco aceitar conexões.
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-pro_accounting} -d ${POSTGRES_DB:-pro_accounting}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pro-accounting-pgdata:
+    name: pro-accounting-pgdata

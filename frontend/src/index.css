@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===========================================================================
+   Tokens semânticos (padrão shadcn/ui)
+   ---------------------------------------------------------------------------
+   Valores em HSL sem a função hsl() — é assim que o Tailwind consegue aplicar
+   opacidade sobre eles (ex.: bg-primary/90).
+
+   Nenhum componente escreve cor literal: todos consomem estes tokens ou a
+   rampa `brand`/`amber` de tailwind.config.js. Trocar a identidade visual do
+   sistema é mexer aqui e lá, em mais lugar nenhum.
+   =========================================================================== */
+
+@layer base {
+  :root {
+    /* Fundo da página levemente acinzentado para os cards brancos ganharem
+       relevo sem precisar de sombra pesada. */
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* brand-600 (#2563EB) — texto branco sobre ele dá 5.17:1 (AA). */
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    /* slate-500 sobre branco = 4.76:1 (AA para texto normal). */
+    --muted-foreground: 215 16% 47%;
+
+    /* `accent` aqui é o realce neutro de hover de menus — não é o âmbar da
+       marca. O âmbar é aplicado com as classes amber-* onde faz sentido. */
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+
+    --radius: 0.625rem;
+  }
+
+  /* Tema escuro já mapeado. Ainda não há botão de alternância na interface —
+     entra numa etapa posterior; deixar os tokens prontos evita reescrever
+     todos os componentes depois. */
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 44% 14%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 44% 14%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Azul mais claro no escuro: brand-600 sobre fundo escuro não alcança AA. */
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 33% 20%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 20%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 20%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 24%;
+    --input: 217 33% 24%;
+    --ring: 217 91% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* Respeita a área segura de aparelhos com notch. */
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Foco visível e consistente — navegação por teclado é requisito de
+     acessibilidade, não detalhe. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::selection {
+    @apply bg-brand-600/20;
+  }
+}
+
+@layer utilities {
+  /* Barra de rolagem discreta para as áreas densas (menu, tabelas). */
+  .scrollbar-slim {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-white/20;
+  }
+
+  .scrollbar-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
