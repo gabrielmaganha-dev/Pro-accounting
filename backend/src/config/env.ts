@@ -51,7 +51,17 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(8, 'deve ter no mínimo 8 caracteres').optional(),
 });
 
-const parsed = envSchema.safeParse(process.env);
+/**
+ * Na Vercel, a integração com o Supabase injeta a conexão como
+ * POSTGRES_PRISMA_URL (pooler em modo transação, já com `pgbouncer=true`) e não
+ * como DATABASE_URL. Uma DATABASE_URL definida explicitamente sempre vence.
+ */
+const source = {
+  ...process.env,
+  DATABASE_URL: process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL,
+};
+
+const parsed = envSchema.safeParse(source);
 
 if (!parsed.success) {
   const details = parsed.error.issues
