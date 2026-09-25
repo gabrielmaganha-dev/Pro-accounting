@@ -4,6 +4,7 @@
   "private": true,
   "description": "Sistema de gestão de clientes, contratos e faturas — Pro Accounting",
   "license": "UNLICENSED",
+  "type": "module",
   "engines": {
     "node": ">=20.11.0"
   },

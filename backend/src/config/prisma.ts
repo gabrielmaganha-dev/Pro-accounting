@@ -15,6 +15,9 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
+    // Explícito em vez de deixar o Prisma ler `env("DATABASE_URL")` do schema:
+    // assim vale o fallback de src/config/env.ts (POSTGRES_PRISMA_URL na Vercel).
+    datasourceUrl: env.DATABASE_URL,
     log: env.isDevelopment ? ['warn', 'error'] : ['error'],
   });
 
