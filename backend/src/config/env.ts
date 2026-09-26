@@ -58,7 +58,11 @@ const envSchema = z.object({
  */
 const source = {
   ...process.env,
-  DATABASE_URL: process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL,
+ DATABASE_URL:
+  process.env.STORAGE_POSTGRES_PRISMA_URL ||
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.STORAGE_POSTGRES_URL,
 };
 
 const parsed = envSchema.safeParse(source);

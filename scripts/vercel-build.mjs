@@ -14,11 +14,18 @@ import { execSync } from 'node:child_process';
 
 // A integração Vercel + Supabase injeta POSTGRES_*; DATABASE_URL/DIRECT_URL
 // definidas à mão têm prioridade.
-const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL;
+const databaseUrl =
+  process.env.STORAGE_POSTGRES_PRISMA_URL ||
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.STORAGE_POSTGRES_URL;
 
-// Migrations precisam de conexão direta ou do pooler em modo sessão: o modo
-// transação (porta 6543) não suporta o advisory lock que o Prisma usa.
-const migrationUrl = process.env.DIRECT_URL || process.env.POSTGRES_URL_NON_POOLING || databaseUrl;
+const migrationUrl =
+  process.env.STORAGE_POSTGRES_URL_NON_POOLING ||
+  process.env.DIRECT_URL ||
+  process.env.POSTGRES_URL_NON_POOLING ||
+  process.env.STORAGE_POSTGRES_URL ||
+  databaseUrl;
 
 const missing = [];
 if (!databaseUrl) missing.push('DATABASE_URL (ou conecte o Supabase em Storage na Vercel)');
