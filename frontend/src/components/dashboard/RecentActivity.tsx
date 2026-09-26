@@ -1,14 +1,12 @@
 import { FileText, ReceiptText, UserPlus, Wallet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { EmptyState } from '@/components/common/EmptyState';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import {
-  PAYMENT_METHOD_LABELS,
-  type DashboardRecentActivity,
-} from '@/types/dashboard';
+import { PAYMENT_METHOD_LABELS, type DashboardRecentActivity } from '@/types/dashboard';
 import { formatCpfCnpj, formatCurrency, formatDateTime, formatRelativeTime } from '@/utils/format';
 
 interface RecentActivityProps {
@@ -24,6 +22,8 @@ interface ActivityEntry {
   detail: string;
   amount?: string;
   createdAt: string;
+  /** Ficha do registro — cada linha da linha do tempo abre o que ela descreve. */
+  to: string;
 }
 
 const MAX_ENTRIES = 8;
@@ -80,37 +80,45 @@ export function RecentActivity({ activity, isLoading }: RecentActivityProps) {
             compact
           />
         ) : (
-          <ul className="space-y-3">
+          <ul className="-mx-2 space-y-1">
             {entries.map((entry) => (
-              <li key={entry.id} className="flex items-start gap-3">
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'flex size-9 shrink-0 items-center justify-center rounded-lg',
-                    entry.tone,
-                  )}
+              <li key={entry.id}>
+                <Link
+                  to={entry.to}
+                  className="flex items-start gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary/60"
                 >
-                  <entry.icon className="size-4" />
-                </span>
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'flex size-9 shrink-0 items-center justify-center rounded-lg',
+                      entry.tone,
+                    )}
+                  >
+                    <entry.icon className="size-4" />
+                  </span>
 
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{entry.title}</p>
-                  <p className="truncate text-xs text-muted-foreground">{entry.detail}</p>
-                </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">{entry.title}</p>
+                    <p className="truncate text-xs text-muted-foreground">{entry.detail}</p>
+                  </div>
 
-                <div className="shrink-0 text-right">
-                  {entry.amount && (
-                    <p className="text-sm font-medium tabular-nums text-foreground">
-                      {entry.amount}
-                    </p>
-                  )}
-                  {/* Data absoluta no title: "há 3 dias" é melhor para ler de
+                  <div className="shrink-0 text-right">
+                    {entry.amount && (
+                      <p className="text-sm font-medium tabular-nums text-foreground">
+                        {entry.amount}
+                      </p>
+                    )}
+                    {/* Data absoluta no title: "há 3 dias" é melhor para ler de
                       relance, mas quem precisa conferir um lançamento precisa
                       do dia e da hora exatos. */}
-                  <p className="text-xs text-muted-foreground" title={formatDateTime(entry.createdAt)}>
-                    {formatRelativeTime(entry.createdAt)}
-                  </p>
-                </div>
+                    <p
+                      className="text-xs text-muted-foreground"
+                      title={formatDateTime(entry.createdAt)}
+                    >
+                      {formatRelativeTime(entry.createdAt)}
+                    </p>
+                  </div>
+                </Link>
               </li>
             ))}
           </ul>
@@ -129,6 +137,7 @@ function buildTimeline(activity: DashboardRecentActivity): ActivityEntry[] {
       title: 'Cliente cadastrado',
       detail: `${client.name} · ${formatCpfCnpj(client.cpfCnpj)}`,
       createdAt: client.createdAt,
+      to: `/clientes/${client.id}`,
     })),
 
     ...activity.contracts.map((contract) => ({
@@ -139,6 +148,7 @@ function buildTimeline(activity: DashboardRecentActivity): ActivityEntry[] {
       detail: `${contract.number} · ${contract.clientName}`,
       amount: `${formatCurrency(contract.monthlyValue)}/mês`,
       createdAt: contract.createdAt,
+      to: `/contratos/${contract.id}`,
     })),
 
     ...activity.invoices.map((invoice) => ({
@@ -149,6 +159,7 @@ function buildTimeline(activity: DashboardRecentActivity): ActivityEntry[] {
       detail: `${invoice.number} · ${invoice.clientName}`,
       amount: formatCurrency(invoice.amount),
       createdAt: invoice.createdAt,
+      to: `/faturas/${invoice.id}`,
     })),
 
     ...activity.payments.map((payment) => ({
@@ -159,10 +170,9 @@ function buildTimeline(activity: DashboardRecentActivity): ActivityEntry[] {
       detail: `${payment.invoiceNumber} · ${payment.clientName} · ${PAYMENT_METHOD_LABELS[payment.paymentMethod]} · por ${payment.registeredByName}`,
       amount: formatCurrency(payment.amount),
       createdAt: payment.createdAt,
+      to: `/faturas/${payment.invoiceId}`,
     })),
   ];
 
-  return entries
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, MAX_ENTRIES);
+  return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, MAX_ENTRIES);
 }

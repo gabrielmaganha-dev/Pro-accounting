@@ -138,8 +138,11 @@ export function LoginPage() {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Senha</FormLabel>
-                <FormControl>
-                  <div className="relative">
+                {/* FormControl no <Input>, não na <div>: é ele que recebe o id
+                    do rótulo e o aria-invalid. Envolvendo a div, o leitor de
+                    tela não associava "Senha" ao campo. */}
+                <div className="relative">
+                  <FormControl>
                     <Input
                       type={showPassword ? 'text' : 'password'}
                       autoComplete="current-password"
@@ -148,23 +151,23 @@ export function LoginPage() {
                       disabled={isSubmitting}
                       {...field}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((current) => !current)}
-                      disabled={isSubmitting}
-                      // aria-label muda junto com o estado para que o leitor de
-                      // tela anuncie a ação correta, não um rótulo fixo.
-                      aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                      className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="size-4" aria-hidden="true" />
-                      ) : (
-                        <Eye className="size-4" aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                </FormControl>
+                  </FormControl>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    disabled={isSubmitting}
+                    // aria-label muda junto com o estado para que o leitor de
+                    // tela anuncie a ação correta, não um rótulo fixo.
+                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
                 <FormMessage />
               </FormItem>
             )}
@@ -190,7 +193,7 @@ export function LoginPage() {
         Esqueceu a senha? Solicite a redefinição a um administrador.
         <br />
         {/* A recuperação por e-mail entra na etapa de autenticação completa. */}
-        <span className="text-slate-400">Recuperação por e-mail em breve.</span>
+        <span>Recuperação por e-mail em breve.</span>
       </p>
     </div>
   );

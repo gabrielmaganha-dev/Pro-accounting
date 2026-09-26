@@ -737,86 +737,98 @@ export async function registerPayment(
   input: RegisterPaymentInput,
   user: AuthenticatedUser,
 ) {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: invoiceId },
-    include: {
-      payments: { select: { amount: true, paymentDate: true, paymentMethod: true } },
-    },
-  });
-
-  if (!invoice) {
-    throw AppError.notFound('Fatura não encontrada.');
-  }
-
-  if (invoice.status === InvoiceStatus.CANCELLED) {
-    throw AppError.conflict(
-      'Não é possível registrar pagamento em uma fatura cancelada. Reabra-a antes.',
-    );
-  }
-
   /**
-   * Proteção contra duplicata acidental.
+   * Tudo dentro de UMA transação, com a linha da fatura bloqueada.
    *
-   * Mesma fatura, mesmo valor, mesma data e mesma forma é quase sempre o mesmo
-   * dinheiro lançado duas vezes — duplo clique, página reaberta, duas pessoas
-   * conferindo o extrato ao mesmo tempo. O estrago é silencioso: a fatura
-   * aparece quitada, o recebido do mês infla, e a diferença só aparece na
-   * conciliação bancária semanas depois.
-   *
-   * Não é uma trava absoluta. `confirmDuplicate` existe porque a coincidência
-   * é possível, e quem está olhando o extrato sabe diferenciar — a API só se
-   * recusa a decidir isso sozinha.
+   * A conferência do saldo e a gravação do pagamento precisam ser atômicas.
+   * Sem o bloqueio, dois lançamentos simultâneos (duas pessoas no balcão,
+   * um duplo clique com a rede lenta) leriam o mesmo saldo em aberto, os dois
+   * passariam na checagem "não excede o saldo" e a fatura terminaria paga em
+   * dobro. O `FOR UPDATE` faz o segundo esperar o primeiro terminar e reler o
+   * saldo já atualizado.
    */
-  if (!input.confirmDuplicate) {
-    const duplicate = invoice.payments.find(
-      (payment) =>
-        toCents(payment.amount) === toCents(input.amount) &&
-        utcToIsoDate(payment.paymentDate) === input.paymentDate &&
-        payment.paymentMethod === input.paymentMethod,
-    );
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId} FOR UPDATE`;
 
-    if (duplicate) {
+    const invoice = await tx.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        payments: { select: { amount: true, paymentDate: true, paymentMethod: true } },
+      },
+    });
+
+    if (!invoice) {
+      throw AppError.notFound('Fatura não encontrada.');
+    }
+
+    if (invoice.status === InvoiceStatus.CANCELLED) {
       throw AppError.conflict(
-        `Já existe um pagamento de ${formatBrl(toCents(input.amount))} nesta fatura, ` +
-          `na mesma data e pela mesma forma. Se for mesmo um segundo pagamento, ` +
-          'confirme para registrar assim mesmo.',
+        'Não é possível registrar pagamento em uma fatura cancelada. Reabra-a antes.',
       );
     }
-  }
 
-  const amountCents = toCents(invoice.amount);
-  const paidCents = invoice.payments.reduce((sum, payment) => sum + toCents(payment.amount), 0);
-  const outstandingCents = amountCents - paidCents;
+    /**
+     * Proteção contra duplicata acidental.
+     *
+     * Mesma fatura, mesmo valor, mesma data e mesma forma é quase sempre o mesmo
+     * dinheiro lançado duas vezes — duplo clique, página reaberta, duas pessoas
+     * conferindo o extrato ao mesmo tempo. O estrago é silencioso: a fatura
+     * aparece quitada, o recebido do mês infla, e a diferença só aparece na
+     * conciliação bancária semanas depois.
+     *
+     * Não é uma trava absoluta. `confirmDuplicate` existe porque a coincidência
+     * é possível, e quem está olhando o extrato sabe diferenciar — a API só se
+     * recusa a decidir isso sozinha.
+     */
+    if (!input.confirmDuplicate) {
+      const duplicate = invoice.payments.find(
+        (payment) =>
+          toCents(payment.amount) === toCents(input.amount) &&
+          utcToIsoDate(payment.paymentDate) === input.paymentDate &&
+          payment.paymentMethod === input.paymentMethod,
+      );
 
-  if (outstandingCents <= 0) {
-    throw AppError.conflict('Esta fatura já está quitada.');
-  }
+      if (duplicate) {
+        throw AppError.conflict(
+          `Já existe um pagamento de ${formatBrl(toCents(input.amount))} nesta fatura, ` +
+            `na mesma data e pela mesma forma. Se for mesmo um segundo pagamento, ` +
+            'confirme para registrar assim mesmo.',
+        );
+      }
+    }
 
-  const paymentCents = toCents(input.amount);
+    const amountCents = toCents(invoice.amount);
+    const paidCents = invoice.payments.reduce((sum, payment) => sum + toCents(payment.amount), 0);
+    const outstandingCents = amountCents - paidCents;
 
-  /**
-   * Pagamento acima do saldo é recusado.
-   *
-   * A causa mais provável é erro de digitação — um zero a mais. Aceitar
-   * criaria saldo negativo, que o sistema não tem como representar nem cobrar
-   * de volta. A mensagem diz o saldo exato para o usuário corrigir na hora.
-   */
-  if (paymentCents > outstandingCents) {
-    throw AppError.validation(
-      `O pagamento de ${formatBrl(paymentCents)} excede o saldo em aberto de ` +
-        `${formatBrl(outstandingCents)}. Ajuste o valor ou lance em duas parcelas.`,
-      [{ field: 'amount', message: 'Valor acima do saldo em aberto.' }],
+    if (outstandingCents <= 0) {
+      throw AppError.conflict('Esta fatura já está quitada.');
+    }
+
+    const paymentCents = toCents(input.amount);
+
+    /**
+     * Pagamento acima do saldo é recusado.
+     *
+     * A causa mais provável é erro de digitação — um zero a mais. Aceitar
+     * criaria saldo negativo, que o sistema não tem como representar nem cobrar
+     * de volta. A mensagem diz o saldo exato para o usuário corrigir na hora.
+     */
+    if (paymentCents > outstandingCents) {
+      throw AppError.validation(
+        `O pagamento de ${formatBrl(paymentCents)} excede o saldo em aberto de ` +
+          `${formatBrl(outstandingCents)}. Ajuste o valor ou lance em duas parcelas.`,
+        [{ field: 'amount', message: 'Valor acima do saldo em aberto.' }],
+      );
+    }
+
+    const nextStatus = statusAfterPayments(
+      invoice.status,
+      amountCents,
+      paidCents + paymentCents,
     );
-  }
+    const settles = nextStatus === InvoiceStatus.PAID;
 
-  const nextStatus = statusAfterPayments(
-    invoice.status,
-    amountCents,
-    paidCents + paymentCents,
-  );
-  const settles = nextStatus === InvoiceStatus.PAID;
-
-  await prisma.$transaction(async (tx) => {
     await tx.payment.create({
       data: {
         invoiceId,

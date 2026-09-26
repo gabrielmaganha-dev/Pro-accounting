@@ -1,6 +1,4 @@
 import {
-  ArrowDownAZ,
-  ArrowUpAZ,
   CircleDollarSign,
   Search,
   SlidersHorizontal,
@@ -11,7 +9,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -35,6 +36,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usePayments } from '@/hooks/use-payments';
+import { tableFrom } from '@/lib/list-layout';
 import { PAYMENT_METHOD_LABELS } from '@/types/dashboard';
 import { PAYMENT_METHOD_OPTIONS } from '@/types/invoice';
 import type { PaymentListFilters } from '@/types/payment';
@@ -123,7 +125,7 @@ export function PaymentsListPage() {
     [page, search, paymentMethod, clientId, dateFrom, dateTo, minAmount, maxAmount, sort, order],
   );
 
-  const { data, isPending, isFetching, isError, error } = usePayments(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = usePayments(filters);
 
   const hasActiveFilters = Boolean(
     search || paymentMethod || clientId || dateFrom || dateTo || minAmount || maxAmount,
@@ -208,7 +210,7 @@ export function PaymentsListPage() {
                 value={paymentMethod || ALL}
                 onValueChange={(value) => updateParams({ paymentMethod: value, page: '1' })}
               >
-                <SelectTrigger className="w-[170px]" aria-label="Filtrar por forma">
+                <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filtrar por forma de pagamento">
                   <SlidersHorizontal className="size-4 text-muted-foreground" />
                   <SelectValue />
                 </SelectTrigger>
@@ -233,6 +235,7 @@ export function PaymentsListPage() {
                 variant={showAdvanced ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setShowAdvanced(!showAdvanced)}
+                aria-expanded={showAdvanced}
               >
                 <SlidersHorizontal />
                 Período e valor
@@ -259,9 +262,7 @@ export function PaymentsListPage() {
                   <Input
                     type="date"
                     value={dateFrom}
-                    onChange={(event) =>
-                      updateParams({ dateFrom: event.target.value, page: '1' })
-                    }
+                    onChange={(event) => updateParams({ dateFrom: event.target.value, page: '1' })}
                     aria-label="Pagamento — de"
                   />
                   <span className="text-xs text-muted-foreground">até</span>
@@ -278,9 +279,7 @@ export function PaymentsListPage() {
               <AmountRangeField
                 min={minAmount}
                 max={maxAmount}
-                onChange={(min, max) =>
-                  updateParams({ minAmount: min, maxAmount: max, page: '1' })
-                }
+                onChange={(min, max) => updateParams({ minAmount: min, maxAmount: max, page: '1' })}
               />
             </div>
           )}
@@ -290,18 +289,17 @@ export function PaymentsListPage() {
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
         {isError ? (
-          <EmptyState
+          <ErrorState
             title="Não foi possível carregar os pagamentos"
-            description={error instanceof Error ? error.message : undefined}
-            icon={CircleDollarSign}
+            error={error}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
-          <TableSkeleton />
+          <ListSkeleton />
         ) : data && data.items.length === 0 ? (
           <EmptyState
-            title={
-              hasActiveFilters ? 'Nenhum pagamento encontrado' : 'Nenhum pagamento registrado'
-            }
+            title={hasActiveFilters ? 'Nenhum pagamento encontrado' : 'Nenhum pagamento registrado'}
             description={
               hasActiveFilters
                 ? 'Tente outro termo de busca ou limpe os filtros aplicados.'
@@ -326,116 +324,133 @@ export function PaymentsListPage() {
           />
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortButton
+            <MobileList label="Pagamentos">
+              {data?.items.map((payment) => (
+                <MobileListItem
+                  key={payment.id}
+                  to={`/faturas/${payment.invoice.id}`}
+                  title={payment.client.name}
+                  subtitle={`${payment.invoice.number} · ${payment.registeredByName}`}
+                  aside={<span className="text-emerald-700">{formatCurrency(payment.amount)}</span>}
+                  footer={
+                    <>
+                      <span>{formatDate(payment.paymentDate)}</span>
+                      <Badge variant="outline">
+                        {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
+                      </Badge>
+                      <InvoiceStatusBadge status={payment.invoice.status} />
+                    </>
+                  }
+                />
+              ))}
+            </MobileList>
+
+            {/* Colunas extras um degrau depois do que a janela sugere: a partir
+                de lg o menu lateral ocupa 256px da largura. */}
+            <div className={tableFrom('md')}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead
                       label="Data"
                       column="paymentDate"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
+                    <SortableHead
                       label="Cliente"
                       column="client"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead>Fatura</TableHead>
-                  <TableHead>
-                    <SortButton
+                    <TableHead>Fatura</TableHead>
+                    <SortableHead
                       label="Valor"
                       column="amount"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">Forma</TableHead>
-                  <TableHead className="hidden lg:table-cell">Usuário</TableHead>
-                  <TableHead className="hidden xl:table-cell">Situação da fatura</TableHead>
-                  <TableHead className="w-[60px] text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {data?.items.map((payment) => (
-                  <TableRow
-                    key={payment.id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/faturas/${payment.invoice.id}`)}
-                  >
-                    <TableCell className="whitespace-nowrap font-medium">
-                      {formatDate(payment.paymentDate)}
-                    </TableCell>
-
-                    <TableCell>
-                      <p className="max-w-[180px] truncate text-foreground">
-                        {payment.client.name}
-                      </p>
-                      <p className="max-w-[180px] truncate text-xs text-muted-foreground">
-                        {formatCpfCnpj(payment.client.cpfCnpj)}
-                      </p>
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap">
-                      {payment.invoice.number}
-                      {payment.contract && (
-                        <p className="text-xs text-muted-foreground">
-                          {payment.contract.number}
-                        </p>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap font-medium tabular-nums text-emerald-700">
-                      {formatCurrency(payment.amount)}
-                      {/* Pagamento menor que a fatura é parcial — dizer isso
-                          evita que alguém leia a linha como quitação. */}
-                      {Number(payment.amount) < Number(payment.invoice.amount) && (
-                        <p className="text-xs font-normal text-muted-foreground">
-                          de {formatCurrency(payment.invoice.amount)}
-                        </p>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap md:table-cell">
-                      <Badge variant="outline">
-                        {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
-                      </Badge>
-                    </TableCell>
-
-                    <TableCell className="hidden max-w-[160px] truncate lg:table-cell">
-                      {payment.registeredByName}
-                    </TableCell>
-
-                    <TableCell className="hidden xl:table-cell">
-                      <InvoiceStatusBadge status={payment.invoice.status} />
-                    </TableCell>
-
-                    <TableCell className="text-right">
-                      <div onClick={(event) => event.stopPropagation()}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          asChild
-                          aria-label="Abrir fatura do pagamento"
-                        >
-                          <Link to={`/faturas/${payment.invoice.id}`}>
-                            <SquareArrowOutUpRight />
-                          </Link>
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <TableHead className="hidden lg:table-cell">Forma</TableHead>
+                    <TableHead className="hidden xl:table-cell">Usuário</TableHead>
+                    <TableHead className="hidden 2xl:table-cell">Situação da fatura</TableHead>
+                    <TableHead className="w-[60px] text-right">Ações</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+
+                <TableBody>
+                  {data?.items.map((payment) => (
+                    <TableRow
+                      key={payment.id}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/faturas/${payment.invoice.id}`)}
+                    >
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {formatDate(payment.paymentDate)}
+                      </TableCell>
+
+                      <TableCell>
+                        <p className="max-w-[180px] truncate text-foreground">
+                          {payment.client.name}
+                        </p>
+                        <p className="max-w-[180px] truncate text-xs text-muted-foreground">
+                          {formatCpfCnpj(payment.client.cpfCnpj)}
+                        </p>
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap">
+                        {payment.invoice.number}
+                        {payment.contract && (
+                          <p className="text-xs text-muted-foreground">{payment.contract.number}</p>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap font-medium tabular-nums text-emerald-700">
+                        {formatCurrency(payment.amount)}
+                        {/* Pagamento menor que a fatura é parcial — dizer isso
+                          evita que alguém leia a linha como quitação. */}
+                        {Number(payment.amount) < Number(payment.invoice.amount) && (
+                          <p className="text-xs font-normal text-muted-foreground">
+                            de {formatCurrency(payment.invoice.amount)}
+                          </p>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap lg:table-cell">
+                        <Badge variant="outline">
+                          {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
+                        </Badge>
+                      </TableCell>
+
+                      <TableCell className="hidden max-w-[160px] truncate xl:table-cell">
+                        {payment.registeredByName}
+                      </TableCell>
+
+                      <TableCell className="hidden 2xl:table-cell">
+                        <InvoiceStatusBadge status={payment.invoice.status} />
+                      </TableCell>
+
+                      <TableCell className="text-right">
+                        <div onClick={(event) => event.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            asChild
+                            aria-label="Abrir fatura do pagamento"
+                          >
+                            <Link to={`/faturas/${payment.invoice.id}`}>
+                              <SquareArrowOutUpRight />
+                            </Link>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
             {data && (
               <Pagination
@@ -508,53 +523,6 @@ function AmountRangeField({
           aria-label="Valor máximo"
         />
       </div>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<PaymentListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<PaymentListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <Skeleton className="h-4 w-24" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-32" />
-          </div>
-          <Skeleton className="hidden h-4 w-20 sm:block" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-      ))}
     </div>
   );
 }

@@ -1,21 +1,14 @@
-import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  Eye,
-  Pencil,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  UserPlus,
-  Users,
-  X,
-} from 'lucide-react';
+import { Eye, Pencil, Plus, Search, SlidersHorizontal, UserPlus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -26,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -36,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useClients } from '@/hooks/use-clients';
+import { tableFrom } from '@/lib/list-layout';
 import { BRAZILIAN_STATES, type ClientListFilters, type ClientStatus } from '@/types/client';
 import { formatCpfCnpj, formatDate, formatPhone } from '@/utils/format';
 
@@ -107,7 +100,7 @@ export function ClientsListPage() {
     [page, search, status, state, sort, order],
   );
 
-  const { data, isPending, isFetching, isError, error } = useClients(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = useClients(filters);
 
   const hasActiveFilters = Boolean(search || status || state);
 
@@ -160,12 +153,12 @@ export function ClientsListPage() {
               value={status || ALL}
               onValueChange={(value) => updateParams({ status: value, page: '1' })}
             >
-              <SelectTrigger className="w-[150px]" aria-label="Filtrar por situação">
+              <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filtrar por situação">
                 <SlidersHorizontal className="size-4 text-muted-foreground" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Todas situações</SelectItem>
+                <SelectItem value={ALL}>Todas as situações</SelectItem>
                 <SelectItem value="ACTIVE">Ativos</SelectItem>
                 <SelectItem value="INACTIVE">Inativos</SelectItem>
               </SelectContent>
@@ -175,11 +168,11 @@ export function ClientsListPage() {
               value={state || ALL}
               onValueChange={(value) => updateParams({ state: value, page: '1' })}
             >
-              <SelectTrigger className="w-[110px]" aria-label="Filtrar por UF">
+              <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filtrar por UF">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Todas UF</SelectItem>
+                <SelectItem value={ALL}>Todas as UFs</SelectItem>
                 {BRAZILIAN_STATES.map((uf) => (
                   <SelectItem key={uf} value={uf}>
                     {uf}
@@ -205,13 +198,14 @@ export function ClientsListPage() {
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
         {isError ? (
-          <EmptyState
+          <ErrorState
             title="Não foi possível carregar os clientes"
-            description={error instanceof Error ? error.message : undefined}
-            icon={Users}
+            error={error}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
-          <TableSkeleton />
+          <ListSkeleton />
         ) : data && data.items.length === 0 ? (
           <EmptyState
             title={hasActiveFilters ? 'Nenhum cliente encontrado' : 'Nenhum cliente cadastrado'}
@@ -242,103 +236,130 @@ export function ClientsListPage() {
           />
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortButton
+            <MobileList label="Clientes">
+              {data?.items.map((client) => (
+                <MobileListItem
+                  key={client.id}
+                  to={`/clientes/${client.id}`}
+                  title={client.name}
+                  subtitle={[formatCpfCnpj(client.cpfCnpj), client.companyName]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  aside={<ClientStatusBadge status={client.status} />}
+                  footer={
+                    <>
+                      {client.phone && <span>{formatPhone(client.phone)}</span>}
+                      {client.city && (
+                        <span>
+                          {client.city}
+                          {client.state ? ` / ${client.state}` : ''}
+                        </span>
+                      )}
+                    </>
+                  }
+                />
+              ))}
+            </MobileList>
+
+            {/* As colunas extras entram um degrau DEPOIS do que a largura da
+                janela sugere: a partir de lg o menu lateral ocupa 256px, e a
+                área útil da tabela em lg é quase a mesma de md. */}
+            <div className={tableFrom('md')}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead
                       label="Cliente"
                       column="name"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">Nome fantasia</TableHead>
-                  <TableHead>CPF / CNPJ</TableHead>
-                  <TableHead className="hidden lg:table-cell">E-mail</TableHead>
-                  <TableHead className="hidden md:table-cell">Telefone</TableHead>
-                  <TableHead>Situação</TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
+                    <TableHead className="hidden 2xl:table-cell">Nome fantasia</TableHead>
+                    <TableHead>CPF / CNPJ</TableHead>
+                    <TableHead className="hidden xl:table-cell">E-mail</TableHead>
+                    <TableHead className="hidden md:table-cell">Telefone</TableHead>
+                    <TableHead>Situação</TableHead>
+                    <SortableHead
                       label="Cadastro"
                       column="createdAt"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
+                      className="hidden 2xl:table-cell"
                     />
-                  </TableHead>
-                  <TableHead className="w-[100px] text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
+                    <TableHead className="w-[100px] text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
 
-              <TableBody>
-                {data?.items.map((client) => (
-                  <TableRow
-                    key={client.id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/clientes/${client.id}`)}
-                  >
-                    <TableCell>
-                      <p className="font-medium text-foreground">{client.name}</p>
-                      {/* Abaixo de 1280px o nome fantasia não tem coluna
+                <TableBody>
+                  {data?.items.map((client) => (
+                    <TableRow
+                      key={client.id}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/clientes/${client.id}`)}
+                    >
+                      <TableCell className="min-w-[200px]">
+                        <p className="font-medium text-foreground">{client.name}</p>
+                        {/* Abaixo de 1280px o nome fantasia não tem coluna
                           própria, então aparece aqui como subtítulo em vez
                           de simplesmente sumir. */}
-                      {client.companyName && (
-                        <p className="text-xs text-muted-foreground xl:hidden">
-                          {client.companyName}
-                        </p>
-                      )}
-                    </TableCell>
+                        {client.companyName && (
+                          <p className="text-xs text-muted-foreground 2xl:hidden">
+                            {client.companyName}
+                          </p>
+                        )}
+                      </TableCell>
 
-                    <TableCell className="hidden xl:table-cell">
-                      {client.companyName ?? <span className="text-muted-foreground">—</span>}
-                    </TableCell>
+                      <TableCell className="hidden 2xl:table-cell">
+                        {client.companyName ?? <span className="text-muted-foreground">—</span>}
+                      </TableCell>
 
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {formatCpfCnpj(client.cpfCnpj)}
-                    </TableCell>
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {formatCpfCnpj(client.cpfCnpj)}
+                      </TableCell>
 
-                    <TableCell className="hidden max-w-[220px] truncate lg:table-cell">
-                      {client.email ?? <span className="text-muted-foreground">—</span>}
-                    </TableCell>
+                      <TableCell className="hidden max-w-[200px] truncate xl:table-cell">
+                        {client.email ?? <span className="text-muted-foreground">—</span>}
+                      </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap md:table-cell">
-                      {formatPhone(client.phone)}
-                    </TableCell>
+                      <TableCell className="hidden whitespace-nowrap md:table-cell">
+                        {formatPhone(client.phone)}
+                      </TableCell>
 
-                    <TableCell>
-                      <ClientStatusBadge status={client.status} />
-                    </TableCell>
+                      <TableCell>
+                        <ClientStatusBadge status={client.status} />
+                      </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
-                      {formatDate(client.createdAt)}
-                    </TableCell>
+                      <TableCell className="hidden whitespace-nowrap 2xl:table-cell">
+                        {formatDate(client.createdAt)}
+                      </TableCell>
 
-                    <TableCell className="text-right">
-                      {/* stopPropagation: sem ele, clicar em Editar abriria a
+                      <TableCell className="text-right">
+                        {/* stopPropagation: sem ele, clicar em Editar abriria a
                           tela de detalhes (clique da linha) e logo em seguida
                           a de edição. */}
-                      <div
-                        className="flex justify-end gap-1"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes">
-                          <Link to={`/clientes/${client.id}`}>
-                            <Eye />
-                          </Link>
-                        </Button>
-                        <Button variant="ghost" size="icon" asChild aria-label="Editar cliente">
-                          <Link to={`/clientes/${client.id}/editar`}>
-                            <Pencil />
-                          </Link>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                        <div
+                          className="flex justify-end gap-1"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes">
+                            <Link to={`/clientes/${client.id}`}>
+                              <Eye />
+                            </Link>
+                          </Button>
+                          <Button variant="ghost" size="icon" asChild aria-label="Editar cliente">
+                            <Link to={`/clientes/${client.id}/editar`}>
+                              <Pencil />
+                            </Link>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
             {data && (
               <Pagination
@@ -353,52 +374,6 @@ export function ClientsListPage() {
           </>
         )}
       </Card>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<ClientListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<ClientListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-48" />
-            <Skeleton className="h-3 w-32" />
-          </div>
-          <Skeleton className="hidden h-4 w-32 sm:block" />
-          <Skeleton className="h-6 w-16 rounded-full" />
-        </div>
-      ))}
     </div>
   );
 }

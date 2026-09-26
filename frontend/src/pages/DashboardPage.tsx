@@ -165,7 +165,7 @@ export function DashboardPage() {
           Clientes e contratos
         </h3>
 
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-5">
           <StatCard
             label="Total de clientes"
             value={String(cards?.clients.total ?? 0)}
@@ -211,7 +211,7 @@ export function DashboardPage() {
           Faturas
         </h3>
 
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <StatCard
             label="Total de faturas"
             value={String(cards?.invoices.total ?? 0)}

@@ -1,20 +1,15 @@
-import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  CalendarRange,
-  Download,
-  Loader2,
-  ReceiptText,
-  TrendingUp,
-  Wallet,
-} from 'lucide-react';
+import { CalendarRange, Download, Loader2, ReceiptText, TrendingUp, Wallet } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ChartCard } from '@/components/dashboard/ChartCard';
 import { InvoiceStatusChart } from '@/components/dashboard/InvoiceStatusChart';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
 import { FinanceRevenueChart } from '@/components/finance/FinanceRevenueChart';
 import { ReceiptsByMethodChart } from '@/components/finance/ReceiptsByMethodChart';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
@@ -39,13 +34,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useFinanceEntries, useFinanceExport, useFinanceOverview } from '@/hooks/use-finance';
+import { tableFrom } from '@/lib/list-layout';
 import { cn } from '@/lib/utils';
 import { INVOICE_STATUS_LABELS } from '@/types/dashboard';
-import {
-  PERIOD_OPTIONS,
-  type FinanceFilters,
-  type FinancePeriod,
-} from '@/types/finance';
+import { PERIOD_OPTIONS, type FinanceFilters, type FinancePeriod } from '@/types/finance';
 import { INVOICE_STATUS_OPTIONS } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/utils/format';
 
@@ -226,7 +218,7 @@ export function FinancePage() {
               value={status || ALL}
               onValueChange={(value) => updateParams({ status: value, page: '1' })}
             >
-              <SelectTrigger className="w-[180px]" aria-label="Filtrar por situação">
+              <SelectTrigger className="w-full sm:w-[200px]" aria-label="Filtrar por situação">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -253,117 +245,134 @@ export function FinancePage() {
         </Card>
       )}
 
-      {/* ---------------- Cards ---------------- */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <SummaryCard
-          label="Receita do mês"
-          value={cards?.revenueThisMonth}
-          hint="Mês corrente — não segue o filtro"
-          icon={TrendingUp}
-          tone="text-emerald-700"
-          isLoading={overview.isPending}
-        />
-        <SummaryCard
-          label="Receita do ano"
-          value={cards?.revenueThisYear}
-          hint="Ano corrente — não segue o filtro"
-          icon={TrendingUp}
-          tone="text-emerald-700"
-          isLoading={overview.isPending}
-        />
-        <SummaryCard
-          label="Total recebido"
-          value={cards?.received}
-          hint={periodLabel ? `No período: ${periodLabel}` : undefined}
-          icon={Wallet}
-          tone="text-emerald-700"
-          isLoading={overview.isPending}
-        />
-        <SummaryCard
-          label="Total faturado"
-          value={cards?.invoiced}
-          hint="Emitido no período, exceto canceladas"
-          icon={ReceiptText}
-          isLoading={overview.isPending}
-        />
-        <SummaryCard
-          label="Total pendente"
-          value={cards?.pending}
-          hint={
-            cards ? `${cards.pendingCount} fatura(s) — saldo atual, todo o período` : undefined
-          }
-          icon={ReceiptText}
-          tone="text-amber-800"
-          isLoading={overview.isPending}
-        />
-        <SummaryCard
-          label="Total atrasado"
-          value={cards?.overdue}
-          hint={
-            cards ? `${cards.overdueCount} fatura(s) — saldo atual, todo o período` : undefined
-          }
-          icon={ReceiptText}
-          tone="text-red-700"
-          isLoading={overview.isPending}
-        />
-      </div>
+      {/* Falha na visão geral: sem isto, os seis cartões ficavam em esqueleto
+          para sempre e os gráficos vazios — parecia carregamento eterno. */}
+      {overview.isError && (
+        <Card>
+          <ErrorState
+            title="Não foi possível carregar os totais do período"
+            error={overview.error}
+            onRetry={() => void overview.refetch()}
+            isRetrying={overview.isFetching}
+          />
+        </Card>
+      )}
 
-      {/* Os dois últimos cards são POSIÇÃO DE HOJE, não recorte do período.
+      {!overview.isError && (
+        <>
+          {/* ---------------- Cards ---------------- */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <SummaryCard
+              label="Receita do mês"
+              value={cards?.revenueThisMonth}
+              hint="Mês corrente — não segue o filtro"
+              icon={TrendingUp}
+              tone="text-emerald-700"
+              isLoading={overview.isPending}
+            />
+            <SummaryCard
+              label="Receita do ano"
+              value={cards?.revenueThisYear}
+              hint="Ano corrente — não segue o filtro"
+              icon={TrendingUp}
+              tone="text-emerald-700"
+              isLoading={overview.isPending}
+            />
+            <SummaryCard
+              label="Total recebido"
+              value={cards?.received}
+              hint={periodLabel ? `No período: ${periodLabel}` : undefined}
+              icon={Wallet}
+              tone="text-emerald-700"
+              isLoading={overview.isPending}
+            />
+            <SummaryCard
+              label="Total faturado"
+              value={cards?.invoiced}
+              hint="Emitido no período, exceto canceladas"
+              icon={ReceiptText}
+              isLoading={overview.isPending}
+            />
+            <SummaryCard
+              label="Total pendente"
+              value={cards?.pending}
+              hint={
+                cards ? `${cards.pendingCount} fatura(s) — saldo atual, todo o período` : undefined
+              }
+              icon={ReceiptText}
+              tone="text-amber-800"
+              isLoading={overview.isPending}
+            />
+            <SummaryCard
+              label="Total atrasado"
+              value={cards?.overdue}
+              hint={
+                cards ? `${cards.overdueCount} fatura(s) — saldo atual, todo o período` : undefined
+              }
+              icon={ReceiptText}
+              tone="text-red-700"
+              isLoading={overview.isPending}
+            />
+          </div>
+
+          {/* Os dois últimos cards são POSIÇÃO DE HOJE, não recorte do período.
           Dizer isso evita a leitura errada mais provável da tela — somar
           "recebido no mês" com "atrasado" como se fossem o mesmo intervalo. */}
-      <p className="text-xs text-muted-foreground">
-        Pendente e atrasado mostram o saldo em aberto <strong>de hoje</strong>, de todas as
-        faturas — não apenas as do período selecionado. Recortá-los por período responderia
-        outra pergunta: "o que venceu naquele intervalo e continua em aberto".
-      </p>
+          <p className="text-xs text-muted-foreground">
+            Pendente e atrasado mostram o saldo em aberto <strong>de hoje</strong>, de todas as
+            faturas — não apenas as do período selecionado. Recortá-los por período responderia
+            outra pergunta: "o que venceu naquele intervalo e continua em aberto".
+          </p>
 
-      {/* ---------------- Gráficos ---------------- */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <ChartCard
-          title="Receita"
-          description={
-            overview.data?.granularity === 'day'
-              ? 'Recebimentos por dia no período'
-              : 'Recebimentos por mês no período'
-          }
-          isLoading={overview.isPending}
-          isEmpty={overview.data?.revenueSeries.every((point) => Number(point.total) === 0)}
-          emptyTitle="Nenhum recebimento no período"
-        >
-          {overview.data && (
-            <FinanceRevenueChart
-              data={overview.data.revenueSeries}
-              granularity={overview.data.granularity}
-            />
-          )}
-        </ChartCard>
+          {/* ---------------- Gráficos ---------------- */}
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <ChartCard
+              title="Receita"
+              description={
+                overview.data?.granularity === 'day'
+                  ? 'Recebimentos por dia no período'
+                  : 'Recebimentos por mês no período'
+              }
+              isLoading={overview.isPending}
+              isEmpty={overview.data?.revenueSeries.every((point) => Number(point.total) === 0)}
+              emptyTitle="Nenhum recebimento no período"
+            >
+              {overview.data && (
+                <FinanceRevenueChart
+                  data={overview.data.revenueSeries}
+                  granularity={overview.data.granularity}
+                />
+              )}
+            </ChartCard>
 
-        <ChartCard
-          title="Recebimentos por forma"
-          description="Por onde o dinheiro entrou no período"
-          isLoading={overview.isPending}
-          isEmpty={overview.data?.receiptsByMethod.length === 0}
-          emptyTitle="Nenhum recebimento no período"
-        >
-          {overview.data && (
-            <ReceiptsByMethodChart
-              data={overview.data.receiptsByMethod}
-              total={overview.data.cards.received}
-            />
-          )}
-        </ChartCard>
+            <ChartCard
+              title="Recebimentos por forma"
+              description="Por onde o dinheiro entrou no período"
+              isLoading={overview.isPending}
+              isEmpty={overview.data?.receiptsByMethod.length === 0}
+              emptyTitle="Nenhum recebimento no período"
+            >
+              {overview.data && (
+                <ReceiptsByMethodChart
+                  data={overview.data.receiptsByMethod}
+                  total={overview.data.cards.received}
+                />
+              )}
+            </ChartCard>
 
-        <ChartCard
-          title="Faturas"
-          description="Emitidas no período, pela situação atual"
-          isLoading={overview.isPending}
-          isEmpty={overview.data?.invoicesByStatus.every((slice) => slice.count === 0)}
-          emptyTitle="Nenhuma fatura emitida no período"
-          className="xl:col-span-2"
-        >
-          {overview.data && <InvoiceStatusChart data={overview.data.invoicesByStatus} />}
-        </ChartCard>
-      </div>
+            <ChartCard
+              title="Faturas"
+              description="Emitidas no período, pela situação atual"
+              isLoading={overview.isPending}
+              isEmpty={overview.data?.invoicesByStatus.every((slice) => slice.count === 0)}
+              emptyTitle="Nenhuma fatura emitida no período"
+              className="xl:col-span-2"
+            >
+              {overview.data && <InvoiceStatusChart data={overview.data.invoicesByStatus} />}
+            </ChartCard>
+          </div>
+        </>
+      )}
 
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
@@ -380,13 +389,14 @@ export function FinancePage() {
         </div>
 
         {entries.isError ? (
-          <EmptyState
+          <ErrorState
             title="Não foi possível carregar as faturas"
-            description={entries.error instanceof Error ? entries.error.message : undefined}
-            icon={ReceiptText}
+            error={entries.error}
+            onRetry={() => void entries.refetch()}
+            isRetrying={entries.isFetching}
           />
         ) : entries.isPending ? (
-          <TableSkeleton />
+          <ListSkeleton />
         ) : entries.data && entries.data.items.length === 0 ? (
           <EmptyState
             title="Nenhuma fatura no período"
@@ -396,93 +406,116 @@ export function FinancePage() {
           />
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortButton
+            <MobileList label="Faturas do período">
+              {entries.data?.items.map((entry) => (
+                <MobileListItem
+                  key={entry.id}
+                  to={`/faturas/${entry.id}`}
+                  title={entry.clientName}
+                  subtitle={[entry.number, entry.contractNumber].filter(Boolean).join(' · ')}
+                  aside={
+                    <>
+                      {formatCurrency(entry.amount)}
+                      {Number(entry.paidAmount) > 0 && Number(entry.outstanding) > 0 && (
+                        <p className="text-xs font-normal text-amber-700">
+                          resta {formatCurrency(entry.outstanding)}
+                        </p>
+                      )}
+                    </>
+                  }
+                  footer={
+                    <>
+                      <InvoiceStatusBadge status={entry.status} />
+                      <span>Vence {formatDate(entry.dueDate)}</span>
+                    </>
+                  }
+                />
+              ))}
+            </MobileList>
+
+            <div className={tableFrom('md')}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead
                       label="Cliente"
                       column="client"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead>Fatura</TableHead>
-                  <TableHead>
-                    <SortButton
+                    <TableHead>Fatura</TableHead>
+                    <SortableHead
                       label="Valor"
                       column="amount"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
+                    <SortableHead
                       label="Vencimento"
                       column="dueDate"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">Pagamento</TableHead>
-                  <TableHead>Situação</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {entries.data?.items.map((entry) => (
-                  <TableRow
-                    key={entry.id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/faturas/${entry.id}`)}
-                  >
-                    <TableCell>
-                      <p className="max-w-[200px] truncate text-foreground">{entry.clientName}</p>
-                      {entry.contractNumber && (
-                        <p className="text-xs text-muted-foreground">{entry.contractNumber}</p>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap font-medium">
-                      {entry.number}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {formatCurrency(entry.amount)}
-                      {Number(entry.paidAmount) > 0 && Number(entry.outstanding) > 0 && (
-                        <p className="text-xs text-amber-700">
-                          resta {formatCurrency(entry.outstanding)}
-                        </p>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap">
-                      {formatDate(entry.dueDate)}
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap md:table-cell">
-                      {entry.paymentDate ? (
-                        <>
-                          {formatDate(entry.paymentDate)}
-                          {entry.paymentMethod && (
-                            <p className="text-xs text-muted-foreground">{entry.paymentMethod}</p>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-
-                    <TableCell>
-                      <InvoiceStatusBadge status={entry.status} />
-                    </TableCell>
+                    <TableHead className="hidden xl:table-cell">Pagamento</TableHead>
+                    <TableHead>Situação</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+
+                <TableBody>
+                  {entries.data?.items.map((entry) => (
+                    <TableRow
+                      key={entry.id}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/faturas/${entry.id}`)}
+                    >
+                      <TableCell>
+                        <p className="max-w-[200px] truncate text-foreground">{entry.clientName}</p>
+                        {entry.contractNumber && (
+                          <p className="text-xs text-muted-foreground">{entry.contractNumber}</p>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {entry.number}
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {formatCurrency(entry.amount)}
+                        {Number(entry.paidAmount) > 0 && Number(entry.outstanding) > 0 && (
+                          <p className="text-xs text-amber-700">
+                            resta {formatCurrency(entry.outstanding)}
+                          </p>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap">
+                        {formatDate(entry.dueDate)}
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap xl:table-cell">
+                        {entry.paymentDate ? (
+                          <>
+                            {formatDate(entry.paymentDate)}
+                            {entry.paymentMethod && (
+                              <p className="text-xs text-muted-foreground">{entry.paymentMethod}</p>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell>
+                        <InvoiceStatusBadge status={entry.status} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
             {entries.data && (
               <Pagination
@@ -500,7 +533,10 @@ export function FinancePage() {
 
       <p className="text-xs text-muted-foreground">
         Precisa do detalhe de cada recebimento?{' '}
-        <Link to="/pagamentos" className="font-medium text-brand-700 underline-offset-2 hover:underline">
+        <Link
+          to="/pagamentos"
+          className="font-medium text-brand-700 underline-offset-2 hover:underline"
+        >
           Histórico de pagamentos
         </Link>
         .
@@ -537,7 +573,12 @@ function SummaryCard({
         {isLoading || value === undefined ? (
           <Skeleton className="mt-2 h-7 w-32" />
         ) : (
-          <p className={cn('mt-1 truncate text-xl font-semibold tabular-nums', tone ?? 'text-foreground')}>
+          <p
+            className={cn(
+              'mt-1 truncate text-xl font-semibold tabular-nums',
+              tone ?? 'text-foreground',
+            )}
+          >
             {formatCurrency(value)}
           </p>
         )}
@@ -545,51 +586,5 @@ function SummaryCard({
         {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
       </CardContent>
     </Card>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<FinanceFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<FinanceFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-32" />
-          </div>
-          <Skeleton className="hidden h-4 w-24 sm:block" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-      ))}
-    </div>
   );
 }

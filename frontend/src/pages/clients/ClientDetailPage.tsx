@@ -19,8 +19,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
 import { Pagination } from '@/components/common/Pagination';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
+import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +35,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -60,7 +63,9 @@ import {
   useUpdateClientStatus,
 } from '@/hooks/use-clients';
 import { buttonVariants } from '@/components/ui/button';
+import { tableFrom } from '@/lib/list-layout';
 import { cn } from '@/lib/utils';
+import { isNotFound } from '@/services/api';
 import {
   CLIENT_HISTORY_ACTION_LABELS,
   type ClientHistoryEntry,
@@ -80,7 +85,7 @@ export function ClientDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const { data: client, isPending, isError } = useClient(id);
+  const { data: client, isPending, isError, error, refetch, isFetching } = useClient(id);
   const statusMutation = useUpdateClientStatus();
   const deleteMutation = useDeleteClient();
 
@@ -90,6 +95,22 @@ export function ClientDetailPage() {
   const isAdmin = user?.role === 'ADMIN';
 
   if (isPending) return <DetailSkeleton />;
+
+  // Falha de rede ou de servidor não é "não encontrado": dizer que o cliente
+  // não existe, quando a API só estava fora do ar, faz o usuário achar que o
+  // cadastro foi apagado.
+  if (isError && !isNotFound(error)) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o cliente"
+          error={error}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
+      </Card>
+    );
+  }
 
   if (isError || !client) {
     return (
@@ -114,7 +135,7 @@ export function ClientDetailPage() {
     <div className="space-y-5">
       {/* ---------------- Cabeçalho ---------------- */}
       <div className="flex flex-wrap items-start gap-3">
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar">
+        <Button variant="ghost" size="icon" className="shrink-0" asChild aria-label="Voltar">
           <Link to="/clientes">
             <ArrowLeft />
           </Link>
@@ -239,6 +260,34 @@ export function ClientDetailPage() {
                 }
               />
             ) : (
+              <>
+              <MobileList label="Contratos do cliente">
+                {client.contracts.map((contract) => (
+                  <MobileListItem
+                    key={contract.id}
+                    to={`/contratos/${contract.id}`}
+                    title={contract.number}
+                    subtitle={contract.serviceType}
+                    aside={
+                      <>
+                        {formatCurrency(contract.monthlyValue)}
+                        <span className="text-xs font-normal text-muted-foreground"> /mês</span>
+                      </>
+                    }
+                    footer={
+                      <>
+                        <ContractStatusBadge status={contract.status} />
+                        <span>
+                          {formatDate(contract.startDate)} →{' '}
+                          {contract.endDate ? formatDate(contract.endDate) : 'indeterminado'}
+                        </span>
+                      </>
+                    }
+                  />
+                ))}
+              </MobileList>
+
+              <div className={tableFrom('md')}>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -273,6 +322,8 @@ export function ClientDetailPage() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
+              </>
             )}
 
             {client.contracts.length > 0 && (
@@ -379,12 +430,6 @@ function formatStreetLine(client: { street: string | null; number: string | null
   return client.number ? `${client.street}, ${client.number}` : client.street;
 }
 
-function invoiceBadgeVariant(status: string) {
-  if (status === 'PAID') return 'success' as const;
-  if (status === 'PENDING') return 'warning' as const;
-  if (status === 'OVERDUE') return 'danger' as const;
-  return 'neutral' as const;
-}
 
 function SummaryTile({
   label,
@@ -452,7 +497,7 @@ function InvoicesTab({ clientId }: { clientId: string }) {
   const [status, setStatus] = useState<EffectiveInvoiceStatus | undefined>(undefined);
   const [page, setPage] = useState(1);
 
-  const { data, isPending, isFetching } = useClientInvoices(clientId, status, page);
+  const { data, isPending, isFetching, isError, error, refetch } = useClientInvoices(clientId, status, page);
 
   function changeStatus(value: string): void {
     setStatus(value === ALL_STATUS ? undefined : (value as EffectiveInvoiceStatus));
@@ -466,7 +511,7 @@ function InvoicesTab({ clientId }: { clientId: string }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Select value={status ?? ALL_STATUS} onValueChange={changeStatus}>
-          <SelectTrigger className="w-[180px]" aria-label="Filtrar faturas por situação">
+          <SelectTrigger className="w-full sm:w-[200px]" aria-label="Filtrar faturas por situação">
             <SlidersHorizontal className="size-4 text-muted-foreground" />
             <SelectValue />
           </SelectTrigger>
@@ -489,11 +534,15 @@ function InvoicesTab({ clientId }: { clientId: string }) {
 
       <Card className="overflow-hidden">
         {isPending ? (
-          <div className="space-y-3 p-4">
-            {[0, 1, 2, 3].map((index) => (
-              <Skeleton key={index} className="h-12 w-full" />
-            ))}
-          </div>
+          <ListSkeleton rows={4} />
+        ) : isError ? (
+          <ErrorState
+            title="Não foi possível carregar as faturas"
+            error={error}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
+            compact
+          />
         ) : !data || data.items.length === 0 ? (
           <EmptyState
             title={status ? 'Nenhuma fatura nesta situação' : 'Nenhuma fatura'}
@@ -519,11 +568,33 @@ function InvoicesTab({ clientId }: { clientId: string }) {
           />
         ) : (
           <>
+            <MobileList label="Faturas">
+              {data.items.map((invoice) => (
+                <MobileListItem
+                  key={invoice.id}
+                  to={`/faturas/${invoice.id}`}
+                  title={invoice.number}
+                  subtitle={invoice.contractNumber ? `Contrato ${invoice.contractNumber}` : 'Fatura avulsa'}
+                  aside={formatCurrency(invoice.amount)}
+                  footer={
+                    <>
+                      <InvoiceStatusBadge status={invoice.status} />
+                      <span>Vence {formatDate(invoice.dueDate)}</span>
+                      {invoice.status !== 'CANCELLED' && Number(invoice.outstanding) > 0 && (
+                        <span>Em aberto {formatCurrency(invoice.outstanding)}</span>
+                      )}
+                    </>
+                  }
+                />
+              ))}
+            </MobileList>
+
+            <div className={tableFrom('md')}>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Número</TableHead>
-                  <TableHead className="hidden md:table-cell">Descrição</TableHead>
+                  <TableHead className="hidden xl:table-cell">Descrição</TableHead>
                   <TableHead>Valor</TableHead>
                   <TableHead className="hidden sm:table-cell">Em aberto</TableHead>
                   <TableHead>Vencimento</TableHead>
@@ -546,7 +617,7 @@ function InvoicesTab({ clientId }: { clientId: string }) {
                       )}
                     </TableCell>
 
-                    <TableCell className="hidden max-w-[240px] truncate md:table-cell">
+                    <TableCell className="hidden max-w-[240px] truncate xl:table-cell">
                       {invoice.description ?? '—'}
                     </TableCell>
 
@@ -573,14 +644,13 @@ function InvoicesTab({ clientId }: { clientId: string }) {
                     </TableCell>
 
                     <TableCell>
-                      <Badge variant={invoiceBadgeVariant(invoice.status)}>
-                        {INVOICE_STATUS_LABELS[invoice.status]}
-                      </Badge>
+                      <InvoiceStatusBadge status={invoice.status} />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
 
             <Pagination
               page={data.page}
@@ -599,16 +669,26 @@ function InvoicesTab({ clientId }: { clientId: string }) {
 
 function HistoryTab({ clientId }: { clientId: string }) {
   const [page, setPage] = useState(1);
-  const { data, isPending } = useClientHistory(clientId, page);
+  const { data, isPending, isFetching, isError, error, refetch } = useClientHistory(clientId, page);
 
   if (isPending) {
     return (
       <Card>
-        <CardContent className="space-y-3 p-4">
-          {[0, 1, 2, 3].map((index) => (
-            <Skeleton key={index} className="h-12 w-full" />
-          ))}
-        </CardContent>
+        <ListSkeleton rows={4} />
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o histórico"
+          error={error}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+          compact
+        />
       </Card>
     );
   }
@@ -647,26 +727,14 @@ function HistoryTab({ clientId }: { clientId: string }) {
         ))}
       </ul>
 
-      {data.totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Página {data.page} de {data.totalPages}
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-              Anterior
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= data.totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              Próxima
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={data.page}
+        pageSize={data.pageSize}
+        total={data.total}
+        totalPages={data.totalPages}
+        onPageChange={setPage}
+        disabled={isFetching}
+      />
     </Card>
   );
 }

@@ -35,7 +35,9 @@
 
     --muted: 210 40% 96%;
     /* slate-500 sobre branco = 4.76:1 (AA para texto normal). */
-    --muted-foreground: 215 16% 47%;
+    /* 43% e não 47%: com 47% o texto secundário ficava em 4,3:1 sobre o
+       cinza das abas e das linhas em hover — abaixo dos 4,5:1 do WCAG AA. */
+    --muted-foreground: 215 16% 43%;
 
     /* `accent` aqui é o realce neutro de hover de menus — não é o âmbar da
        marca. O âmbar é aplicado com as classes amber-* onde faz sentido. */
@@ -46,7 +48,10 @@
     --destructive-foreground: 0 0% 100%;
 
     --border: 214 32% 91%;
-    --input: 214 32% 91%;
+    /* Borda de campo de formulário: precisa de 3:1 contra o fundo (WCAG
+       1.4.11) para o campo ser reconhecível como campo. O --border dos
+       cartões continua suave; só os controles ficam mais marcados. */
+    --input: 214 20% 58%;
     --ring: 221 83% 53%;
 
     --radius: 0.625rem;

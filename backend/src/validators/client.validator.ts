@@ -15,14 +15,32 @@ import { BRAZILIAN_STATES, isValidCpfCnpj, onlyDigits } from '../utils/document.
  * antes de qualquer validação.
  */
 
-/** Converte string vazia em undefined — formulário HTML manda "" e não null. */
-const optionalText = (max: number) =>
+/**
+ * Campo opcional que distingue "não mexer" de "apagar".
+ *
+ * A diferença importa na edição. Se campo ausente e campo vazio virassem os
+ * dois `undefined`, apagar o e-mail de um cliente seria impossível: o serviço
+ * entenderia o `""` como "o formulário não mandou este campo" e manteria o
+ * valor antigo gravado, sem nenhum aviso de que a limpeza falhou.
+ *
+ *   ausente ....... undefined -> o serviço não toca no campo
+ *   "" ou null .... null      -> grava NULL (apaga)
+ *   valor ......... valor normalizado
+ *
+ * Mesma convenção dos validadores de contrato e de fatura.
+ */
+const clearable = <T extends z.ZodTypeAny>(schema: T) =>
   z
-    .string()
-    .trim()
-    .max(max, `Máximo de ${max} caracteres.`)
-    .transform((value) => (value.length === 0 ? undefined : value))
-    .optional();
+    .union([z.null(), schema])
+    .optional()
+    .transform((value): z.output<T> | null | undefined => {
+      if (value === undefined) return undefined;
+      if (value === null || value === '') return null;
+      return value;
+    });
+
+const optionalText = (max: number) =>
+  clearable(z.string().trim().max(max, `Máximo de ${max} caracteres.`));
 
 const cpfCnpjSchema = z
   .string({ required_error: 'Informe o CPF ou CNPJ.' })
@@ -36,43 +54,44 @@ const cpfCnpjSchema = z
     message: 'CPF ou CNPJ inválido. Confira os números digitados.',
   });
 
-const phoneSchema = z
-  .string()
-  .transform(onlyDigits)
-  .refine((digits) => digits.length === 0 || digits.length === 10 || digits.length === 11, {
-    message: 'Telefone deve ter 10 dígitos (fixo) ou 11 (celular), com DDD.',
-  })
-  .transform((digits) => (digits.length === 0 ? undefined : digits))
-  .optional();
+const phoneSchema = clearable(
+  z
+    .string()
+    .transform(onlyDigits)
+    .refine((digits) => digits.length === 0 || digits.length === 10 || digits.length === 11, {
+      message: 'Telefone deve ter 10 dígitos (fixo) ou 11 (celular), com DDD.',
+    }),
+);
 
-const zipCodeSchema = z
-  .string()
-  .transform(onlyDigits)
-  .refine((digits) => digits.length === 0 || digits.length === 8, {
-    message: 'CEP deve ter 8 dígitos.',
-  })
-  .transform((digits) => (digits.length === 0 ? undefined : digits))
-  .optional();
+const zipCodeSchema = clearable(
+  z
+    .string()
+    .transform(onlyDigits)
+    .refine((digits) => digits.length === 0 || digits.length === 8, {
+      message: 'CEP deve ter 8 dígitos.',
+    }),
+);
 
-const stateSchema = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .refine((value) => value.length === 0 || (BRAZILIAN_STATES as readonly string[]).includes(value), {
-    message: 'UF inválida.',
-  })
-  .transform((value) => (value.length === 0 ? undefined : value))
-  .optional();
+const stateSchema = clearable(
+  z
+    .string()
+    .trim()
+    .toUpperCase()
+    .refine(
+      (value) => value.length === 0 || (BRAZILIAN_STATES as readonly string[]).includes(value),
+      { message: 'UF inválida.' },
+    ),
+);
 
-const emailSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .refine((value) => value.length === 0 || z.string().email().safeParse(value).success, {
-    message: 'Informe um e-mail válido.',
-  })
-  .transform((value) => (value.length === 0 ? undefined : value))
-  .optional();
+const emailSchema = clearable(
+  z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine((value) => value.length === 0 || z.string().email().safeParse(value).success, {
+      message: 'Informe um e-mail válido.',
+    }),
+);
 
 export const createClientSchema = z.object({
   name: z

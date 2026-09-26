@@ -17,6 +17,7 @@ import { useRenewContract } from '@/hooks/use-contracts';
 import type { ContractDetail } from '@/types/contract';
 import { formatCurrency, formatDate } from '@/utils/format';
 import { maskCurrency, parseCurrency, toCurrencyInput } from '@/utils/mask';
+import { todayIso } from '@/utils/date';
 
 /**
  * Renovação de contrato.
@@ -198,12 +199,4 @@ function suggestNextEndDate(currentEnd: string | null): string {
   const next = new Date(Date.UTC(year, month - 1 + 12, day));
 
   return next.toISOString().slice(0, 10);
-}
-
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-
-  return `${now.getFullYear()}-${month}-${day}`;
 }

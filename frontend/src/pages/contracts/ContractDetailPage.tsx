@@ -19,8 +19,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
 import { Pagination } from '@/components/common/Pagination';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
+import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { RenewContractDialog } from '@/components/contracts/RenewContractDialog';
 import {
   AlertDialog,
@@ -32,7 +36,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -59,7 +62,9 @@ import {
   useDeleteContract,
   useUpdateContractStatus,
 } from '@/hooks/use-contracts';
+import { tableFrom } from '@/lib/list-layout';
 import { cn } from '@/lib/utils';
+import { isNotFound } from '@/services/api';
 import { CONTRACT_STATUS_HINTS } from '@/types/contract';
 import {
   CONTRACT_STATUS_LABELS,
@@ -72,13 +77,14 @@ import {
   formatDate,
   formatDateTime,
 } from '@/utils/format';
+import { todayIso } from '@/utils/date';
 
 export function ContractDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const { data: contract, isPending, isError } = useContract(id);
+  const { data: contract, isPending, isError, error, refetch, isFetching } = useContract(id);
   const statusMutation = useUpdateContractStatus();
   const deleteMutation = useDeleteContract();
 
@@ -90,6 +96,19 @@ export function ContractDetailPage() {
   const isAdmin = user?.role === 'ADMIN';
 
   if (isPending) return <DetailSkeleton />;
+
+  if (isError && !isNotFound(error)) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o contrato"
+          error={error}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
+      </Card>
+    );
+  }
 
   if (isError || !contract) {
     return (
@@ -116,7 +135,7 @@ export function ContractDetailPage() {
     <div className="space-y-5">
       {/* ---------------- Cabeçalho ---------------- */}
       <div className="flex flex-wrap items-start gap-3">
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar">
+        <Button variant="ghost" size="icon" className="shrink-0" asChild aria-label="Voltar">
           <Link to="/contratos">
             <ArrowLeft />
           </Link>
@@ -412,24 +431,9 @@ export function ContractDetailPage() {
 
 // ---------------------------------------------------------------------------
 
-/** Data de hoje em `YYYY-MM-DD`, para comparar com as datas da API. */
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
 /** Valor usado pelo Select para representar "sem filtro". */
 const ALL_STATUS = '__all__';
 
-function invoiceBadgeVariant(status: string) {
-  if (status === 'PAID') return 'success' as const;
-  if (status === 'PENDING') return 'warning' as const;
-  if (status === 'OVERDUE') return 'danger' as const;
-  return 'neutral' as const;
-}
 
 function SummaryTile({
   label,
@@ -496,7 +500,7 @@ function InvoicesTab({ contractId }: { contractId: string }) {
   const [status, setStatus] = useState<EffectiveInvoiceStatus | undefined>(undefined);
   const [page, setPage] = useState(1);
 
-  const { data, isPending, isFetching } = useContractInvoices(contractId, status, page);
+  const { data, isPending, isFetching, isError, error, refetch } = useContractInvoices(contractId, status, page);
 
   function changeStatus(value: string): void {
     setStatus(value === ALL_STATUS ? undefined : (value as EffectiveInvoiceStatus));
@@ -510,7 +514,7 @@ function InvoicesTab({ contractId }: { contractId: string }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Select value={status ?? ALL_STATUS} onValueChange={changeStatus}>
-          <SelectTrigger className="w-[180px]" aria-label="Filtrar faturas por situação">
+          <SelectTrigger className="w-full sm:w-[200px]" aria-label="Filtrar faturas por situação">
             <SlidersHorizontal className="size-4 text-muted-foreground" />
             <SelectValue />
           </SelectTrigger>
@@ -533,11 +537,15 @@ function InvoicesTab({ contractId }: { contractId: string }) {
 
       <Card className="overflow-hidden">
         {isPending ? (
-          <div className="space-y-3 p-4">
-            {[0, 1, 2, 3].map((index) => (
-              <Skeleton key={index} className="h-12 w-full" />
-            ))}
-          </div>
+          <ListSkeleton rows={4} />
+        ) : isError ? (
+          <ErrorState
+            title="Não foi possível carregar as faturas"
+            error={error}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
+            compact
+          />
         ) : !data || data.items.length === 0 ? (
           <EmptyState
             title={status ? 'Nenhuma fatura nesta situação' : 'Nenhuma fatura'}
@@ -563,11 +571,33 @@ function InvoicesTab({ contractId }: { contractId: string }) {
           />
         ) : (
           <>
+            <MobileList label="Faturas">
+              {data.items.map((invoice) => (
+                <MobileListItem
+                  key={invoice.id}
+                  to={`/faturas/${invoice.id}`}
+                  title={invoice.number}
+                  subtitle={invoice.description ?? 'Sem descrição'}
+                  aside={formatCurrency(invoice.amount)}
+                  footer={
+                    <>
+                      <InvoiceStatusBadge status={invoice.status} />
+                      <span>Vence {formatDate(invoice.dueDate)}</span>
+                      {invoice.status !== 'CANCELLED' && Number(invoice.outstanding) > 0 && (
+                        <span>Em aberto {formatCurrency(invoice.outstanding)}</span>
+                      )}
+                    </>
+                  }
+                />
+              ))}
+            </MobileList>
+
+            <div className={tableFrom('md')}>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Número</TableHead>
-                  <TableHead className="hidden md:table-cell">Descrição</TableHead>
+                  <TableHead className="hidden xl:table-cell">Descrição</TableHead>
                   <TableHead>Valor</TableHead>
                   <TableHead className="hidden sm:table-cell">Em aberto</TableHead>
                   <TableHead>Vencimento</TableHead>
@@ -585,7 +615,7 @@ function InvoicesTab({ contractId }: { contractId: string }) {
                       {invoice.number}
                     </TableCell>
 
-                    <TableCell className="hidden max-w-[240px] truncate md:table-cell">
+                    <TableCell className="hidden max-w-[240px] truncate xl:table-cell">
                       {invoice.description ?? '—'}
                     </TableCell>
 
@@ -612,14 +642,13 @@ function InvoicesTab({ contractId }: { contractId: string }) {
                     </TableCell>
 
                     <TableCell>
-                      <Badge variant={invoiceBadgeVariant(invoice.status)}>
-                        {INVOICE_STATUS_LABELS[invoice.status]}
-                      </Badge>
+                      <InvoiceStatusBadge status={invoice.status} />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
 
             <Pagination
               page={data.page}

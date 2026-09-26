@@ -27,11 +27,13 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useContracts } from '@/hooks/use-contracts';
 import { useNextInvoiceNumber } from '@/hooks/use-invoices';
+import { useServerFieldErrors } from '@/hooks/use-server-field-errors';
 import type { ClientSummary } from '@/types/client';
 import { CONTRACT_STATUS_LABELS } from '@/types/dashboard';
 import type { Invoice, InvoicePayload } from '@/types/invoice';
 import { formatCurrency } from '@/utils/format';
 import { maskCurrency, parseCurrency, toCurrencyInput } from '@/utils/mask';
+import { todayIso } from '@/utils/date';
 
 /**
  * Validação do formulário — espelha backend/src/validators/invoice.validator.ts.
@@ -86,6 +88,8 @@ interface InvoiceFormProps {
   onSubmit: (payload: InvoicePayload) => void;
   onCancel: () => void;
   isSubmitting: boolean;
+  /** Erro devolvido pela API na última submissão — destacado nos campos. */
+  serverError?: unknown;
 }
 
 export function InvoiceForm({
@@ -95,6 +99,7 @@ export function InvoiceForm({
   onSubmit,
   onCancel,
   isSubmitting,
+  serverError,
 }: InvoiceFormProps) {
   const isEditing = invoice !== undefined;
 
@@ -115,6 +120,11 @@ export function InvoiceForm({
           issueDate: todayIso(),
           dueDate: '',
         },
+  });
+
+  useServerFieldErrors(form, serverError, {
+    conflictField: 'number',
+    conflictPattern: /número/i,
   });
 
   // Só busca sugestão de número numa emissão nova: numa edição a fatura já tem
@@ -301,11 +311,11 @@ export function InvoiceForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Valor *</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                        R$
-                      </span>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      R$
+                    </span>
+                    <FormControl>
                       <Input
                         inputMode="numeric"
                         placeholder="0,00"
@@ -314,8 +324,8 @@ export function InvoiceForm({
                         {...field}
                         onChange={(event) => field.onChange(maskCurrency(event.target.value))}
                       />
-                    </div>
-                  </FormControl>
+                    </FormControl>
+                  </div>
                   <FormDescription>
                     Digite apenas números — os centavos são preenchidos da direita para a esquerda.
                   </FormDescription>
@@ -402,15 +412,6 @@ export function InvoiceForm({
       </form>
     </Form>
   );
-}
-
-/** Data de hoje em `YYYY-MM-DD`, no fuso do navegador. */
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-
-  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 /**

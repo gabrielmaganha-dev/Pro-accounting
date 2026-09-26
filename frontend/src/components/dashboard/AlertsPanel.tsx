@@ -1,5 +1,13 @@
-import { AlertTriangle, CalendarClock, CalendarX2, CheckCircle2, Clock } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarClock,
+  CalendarX2,
+  CheckCircle2,
+  Clock,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -87,7 +95,10 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
               count={alerts.overdueInvoices.count}
               amount={alerts.overdueInvoices.amount}
               items={alerts.overdueInvoices.items}
-              renderMeta={(item) => `venceu ${formatDate(item.dueDate)} · há ${item.daysOverdue} dia(s)`}
+              listHref="/faturas?status=OVERDUE"
+              renderMeta={(item) =>
+                `venceu ${formatDate(item.dueDate)} · há ${item.daysOverdue} dia(s)`
+              }
             />
 
             <AlertSection
@@ -97,6 +108,7 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
               count={alerts.dueTodayInvoices.count}
               amount={alerts.dueTodayInvoices.amount}
               items={alerts.dueTodayInvoices.items}
+              listHref="/faturas?status=PENDING&sort=dueDate&order=asc"
               renderMeta={() => 'vence hoje'}
             />
 
@@ -107,6 +119,7 @@ export function AlertsPanel({ alerts, isLoading }: AlertsPanelProps) {
               count={alerts.dueSoonInvoices.count}
               amount={alerts.dueSoonInvoices.amount}
               items={alerts.dueSoonInvoices.items}
+              listHref="/faturas?status=PENDING&sort=dueDate&order=asc"
               renderMeta={(item) =>
                 `vence ${formatDate(item.dueDate)} · em ${Math.abs(item.daysOverdue)} dia(s)`
               }
@@ -130,8 +143,18 @@ interface AlertSectionProps {
   count: number;
   amount: string;
   items: AlertInvoiceItem[];
+  /** Listagem filtrada com o grupo inteiro — o painel mostra no máximo 5. */
+  listHref: string;
   renderMeta: (item: AlertInvoiceItem) => string;
 }
+
+/**
+ * Cada item do alerta leva à ficha correspondente. Um painel que aponta "3
+ * faturas vencidas" sem deixar abrir nenhuma obriga o usuário a ir à listagem
+ * e procurar os mesmos números de novo.
+ */
+const ITEM_LINK_CLASS =
+  'flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60 focus-visible:ring-inset';
 
 function AlertSection({
   icon: Icon,
@@ -140,6 +163,7 @@ function AlertSection({
   count,
   amount,
   items,
+  listHref,
   renderMeta,
 }: AlertSectionProps) {
   // Grupo vazio não vira linha "0" — encheria o painel de nada.
@@ -174,24 +198,28 @@ function AlertSection({
 
       <ul className="divide-y divide-border border-t border-border">
         {items.map((item) => (
-          <li key={item.id} className="flex items-center gap-2 px-3 py-2 text-xs">
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-foreground">{item.clientName}</p>
-              <p className="truncate text-muted-foreground">
-                {item.number} · {renderMeta(item)}
-              </p>
-            </div>
-            <span className="shrink-0 font-medium tabular-nums text-foreground">
-              {formatCurrency(item.amount)}
-            </span>
+          <li key={item.id}>
+            <Link to={`/faturas/${item.id}`} className={ITEM_LINK_CLASS}>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">{item.clientName}</p>
+                <p className="truncate text-muted-foreground">
+                  {item.number} · {renderMeta(item)}
+                </p>
+              </div>
+              <span className="shrink-0 font-medium tabular-nums text-foreground">
+                {formatCurrency(item.amount)}
+              </span>
+            </Link>
           </li>
         ))}
 
         {/* O backend limita a 5 itens por grupo. Sem esta linha, um escritório
             com 40 faturas vencidas veria 5 e acharia que são só 5. */}
         {count > items.length && (
-          <li className="px-3 py-2 text-xs text-muted-foreground">
-            + {count - items.length} não exibida(s)
+          <li>
+            <SeeAllLink to={listHref}>
+              {`Ver todas (${count - items.length} não exibida(s))`}
+            </SeeAllLink>
           </li>
         )}
       </ul>
@@ -224,25 +252,41 @@ function ContractAlertSection({ count, items }: { count: number; items: AlertCon
 
       <ul className="divide-y divide-border border-t border-border">
         {items.map((item) => (
-          <li key={item.id} className="flex items-center gap-2 px-3 py-2 text-xs">
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-foreground">{item.clientName}</p>
-              <p className="truncate text-muted-foreground">
-                {item.number} · termina {formatDate(item.endDate)} · em {item.daysUntilExpiry} dia(s)
-              </p>
-            </div>
-            <span className="shrink-0 font-medium tabular-nums text-foreground">
-              {formatCurrency(item.monthlyValue)}/mês
-            </span>
+          <li key={item.id}>
+            <Link to={`/contratos/${item.id}`} className={ITEM_LINK_CLASS}>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">{item.clientName}</p>
+                <p className="truncate text-muted-foreground">
+                  {`${item.number} · termina ${formatDate(item.endDate)} · em ${item.daysUntilExpiry} dia(s)`}
+                </p>
+              </div>
+              <span className="shrink-0 font-medium tabular-nums text-foreground">
+                {formatCurrency(item.monthlyValue)}/mês
+              </span>
+            </Link>
           </li>
         ))}
 
         {count > items.length && (
-          <li className="px-3 py-2 text-xs text-muted-foreground">
-            + {count - items.length} não exibido(s)
+          <li>
+            <SeeAllLink to="/contratos?expiringInDays=30">
+              {`Ver todos (${count - items.length} não exibido(s))`}
+            </SeeAllLink>
           </li>
         )}
       </ul>
     </section>
+  );
+}
+
+function SeeAllLink({ to, children }: { to: string; children: string }) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-brand-700 transition-colors hover:bg-secondary/60 focus-visible:ring-inset"
+    >
+      {children}
+      <ArrowRight className="size-3.5" aria-hidden="true" />
+    </Link>
   );
 }

@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
+import { useServerFieldErrors } from '@/hooks/use-server-field-errors';
 import {
   BRAZILIAN_STATES,
   EMPLOYEE_EDITABLE_FIELDS,
@@ -127,9 +128,17 @@ interface ClientFormProps {
   onSubmit: (payload: ClientPayload) => void;
   onCancel: () => void;
   isSubmitting: boolean;
+  /** Erro devolvido pela API na última submissão — destacado nos campos. */
+  serverError?: unknown;
 }
 
-export function ClientForm({ client, onSubmit, onCancel, isSubmitting }: ClientFormProps) {
+export function ClientForm({
+  client,
+  onSubmit,
+  onCancel,
+  isSubmitting,
+  serverError,
+}: ClientFormProps) {
   const { user } = useAuth();
   const isEditing = client !== undefined;
 
@@ -140,6 +149,11 @@ export function ClientForm({ client, onSubmit, onCancel, isSubmitting }: ClientF
   const form = useForm<ClientFormValues>({
     resolver: zodResolver(clientFormSchema),
     defaultValues: client ? toFormValues(client) : EMPTY_VALUES,
+  });
+
+  useServerFieldErrors(form, serverError, {
+    conflictField: 'cpfCnpj',
+    conflictPattern: /CPF\/CNPJ/,
   });
 
   function isFieldDisabled(field: keyof ClientPayload): boolean {
@@ -567,36 +581,40 @@ function toFormValues(client: ClientDetail): ClientFormValues {
   };
 }
 
-/** Converte o formulário (com máscara) para o payload da API (dados limpos). */
+/**
+ * Converte o formulário (com máscara) para o payload da API (dados limpos).
+ *
+ * Campo opcional vazio vai como `null`, e não omitido: na edição, omitir
+ * significaria "não mexer", e o valor antigo continuaria gravado mesmo depois
+ * de o usuário apagá-lo na tela.
+ */
 function toPayload(values: ClientFormValues): ClientPayload {
-  const optional = (value: string): string | undefined => {
+  const optional = (value: string): string | null => {
     const trimmed = value.trim();
-    return trimmed.length === 0 ? undefined : trimmed;
+    return trimmed.length === 0 ? null : trimmed;
   };
 
-  const optionalDigits = (value: string): string | undefined => {
+  const optionalDigits = (value: string): string | null => {
     const digits = unmask(value);
-    return digits.length === 0 ? undefined : digits;
+    return digits.length === 0 ? null : digits;
   };
 
   return {
     name: values.name.trim(),
     cpfCnpj: unmask(values.cpfCnpj),
     status: values.status,
-    ...(optional(values.companyName) ? { companyName: optional(values.companyName) } : {}),
-    ...(optional(values.stateRegistration)
-      ? { stateRegistration: optional(values.stateRegistration) }
-      : {}),
-    ...(optional(values.email) ? { email: optional(values.email) } : {}),
-    ...(optionalDigits(values.phone) ? { phone: optionalDigits(values.phone) } : {}),
-    ...(optionalDigits(values.whatsapp) ? { whatsapp: optionalDigits(values.whatsapp) } : {}),
-    ...(optionalDigits(values.zipCode) ? { zipCode: optionalDigits(values.zipCode) } : {}),
-    ...(optional(values.street) ? { street: optional(values.street) } : {}),
-    ...(optional(values.number) ? { number: optional(values.number) } : {}),
-    ...(optional(values.complement) ? { complement: optional(values.complement) } : {}),
-    ...(optional(values.neighborhood) ? { neighborhood: optional(values.neighborhood) } : {}),
-    ...(optional(values.city) ? { city: optional(values.city) } : {}),
-    ...(optional(values.state) ? { state: optional(values.state) } : {}),
-    ...(optional(values.notes) ? { notes: optional(values.notes) } : {}),
+    companyName: optional(values.companyName),
+    stateRegistration: optional(values.stateRegistration),
+    email: optional(values.email),
+    phone: optionalDigits(values.phone),
+    whatsapp: optionalDigits(values.whatsapp),
+    zipCode: optionalDigits(values.zipCode),
+    street: optional(values.street),
+    number: optional(values.number),
+    complement: optional(values.complement),
+    neighborhood: optional(values.neighborhood),
+    city: optional(values.city),
+    state: optional(values.state),
+    notes: optional(values.notes),
   };
 }

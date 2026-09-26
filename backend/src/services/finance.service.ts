@@ -690,10 +690,18 @@ function toBrlNumber(value: string): string {
  *    "João" vira "JoÃ£o".
  */
 function toCsv(rows: string[][]): string {
-  const escape = (cell: string): string => {
+  const escape = (rawCell: string): string => {
+    // Injeção de fórmula: o Excel executa como fórmula qualquer célula que
+    // comece com = + - @ (ou tab/CR). Nome de cliente e número de fatura são
+    // digitados por usuários, então um cliente cadastrado como
+    // `=HYPERLINK(...)` viraria um link malicioso na planilha de quem exporta.
+    // O apóstrofo força o Excel a tratar a célula como texto. Valores
+    // monetários nunca são negativos aqui, então nenhum número é afetado.
+    const cell = /^[=+\-@\t\r]/.test(rawCell) ? `'${rawCell}` : rawCell;
+
     // Aspas duplas, ponto e vírgula ou quebra de linha exigem o campo entre
     // aspas, com as aspas internas duplicadas.
-    if (/["\n;]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`;
+    if (/["\r\n;]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`;
     return cell;
   };
 

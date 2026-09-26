@@ -1,11 +1,8 @@
 import {
-  ArrowDownAZ,
-  ArrowUpAZ,
   Eye,
   FilePlus2,
   Pencil,
   Plus,
-  ReceiptText,
   Search,
   SlidersHorizontal,
   X,
@@ -14,7 +11,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -37,6 +37,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useInvoices } from '@/hooks/use-invoices';
+import { tableFrom } from '@/lib/list-layout';
 import { INVOICE_STATUS_LABELS } from '@/types/dashboard';
 import { INVOICE_STATUS_OPTIONS, type InvoiceListFilters } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/utils/format';
@@ -125,16 +126,35 @@ export function InvoicesListPage() {
       ...(maxAmount ? { maxAmount } : {}),
     }),
     [
-      page, search, status, clientId, contractId,
-      dueFrom, dueTo, issueFrom, issueTo, minAmount, maxAmount, sort, order,
+      page,
+      search,
+      status,
+      clientId,
+      contractId,
+      dueFrom,
+      dueTo,
+      issueFrom,
+      issueTo,
+      minAmount,
+      maxAmount,
+      sort,
+      order,
     ],
   );
 
-  const { data, isPending, isFetching, isError, error } = useInvoices(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = useInvoices(filters);
 
   const hasActiveFilters = Boolean(
-    search || status || clientId || contractId ||
-    dueFrom || dueTo || issueFrom || issueTo || minAmount || maxAmount,
+    search ||
+    status ||
+    clientId ||
+    contractId ||
+    dueFrom ||
+    dueTo ||
+    issueFrom ||
+    issueTo ||
+    minAmount ||
+    maxAmount,
   );
 
   function toggleSort(column: NonNullable<InvoiceListFilters['sort']>): void {
@@ -203,12 +223,12 @@ export function InvoicesListPage() {
                 value={status || ALL}
                 onValueChange={(value) => updateParams({ status: value, page: '1' })}
               >
-                <SelectTrigger className="w-[170px]" aria-label="Filtrar por situação">
+                <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filtrar por situação">
                   <SlidersHorizontal className="size-4 text-muted-foreground" />
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>Todas situações</SelectItem>
+                  <SelectItem value={ALL}>Todas as situações</SelectItem>
                   {INVOICE_STATUS_OPTIONS.map((option) => (
                     <SelectItem key={option} value={option}>
                       {INVOICE_STATUS_LABELS[option]}
@@ -221,6 +241,7 @@ export function InvoicesListPage() {
                 variant={showAdvanced ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setShowAdvanced(!showAdvanced)}
+                aria-expanded={showAdvanced}
               >
                 <SlidersHorizontal />
                 Período e valor
@@ -255,17 +276,13 @@ export function InvoicesListPage() {
                 label="Emissão"
                 from={issueFrom}
                 to={issueTo}
-                onChange={(from, to) =>
-                  updateParams({ issueFrom: from, issueTo: to, page: '1' })
-                }
+                onChange={(from, to) => updateParams({ issueFrom: from, issueTo: to, page: '1' })}
               />
 
               <AmountRangeField
                 min={minAmount}
                 max={maxAmount}
-                onChange={(min, max) =>
-                  updateParams({ minAmount: min, maxAmount: max, page: '1' })
-                }
+                onChange={(min, max) => updateParams({ minAmount: min, maxAmount: max, page: '1' })}
               />
             </div>
           )}
@@ -275,13 +292,14 @@ export function InvoicesListPage() {
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
         {isError ? (
-          <EmptyState
+          <ErrorState
             title="Não foi possível carregar as faturas"
-            description={error instanceof Error ? error.message : undefined}
-            icon={ReceiptText}
+            error={error}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
-          <TableSkeleton />
+          <ListSkeleton />
         ) : data && data.items.length === 0 ? (
           <EmptyState
             title={hasActiveFilters ? 'Nenhuma fatura encontrada' : 'Nenhuma fatura emitida'}
@@ -312,152 +330,176 @@ export function InvoicesListPage() {
           />
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortButton
-                      label="Número"
-                      column="number"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Cliente"
-                      column="client"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">Contrato</TableHead>
-                  <TableHead className="hidden lg:table-cell">Descrição</TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Valor"
-                      column="amount"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
-                      label="Emissão"
-                      column="issueDate"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Vencimento"
-                      column="dueDate"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">Pagamento</TableHead>
-                  <TableHead>Situação</TableHead>
-                  <TableHead className="w-[100px] text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {data?.items.map((invoice) => (
-                  <TableRow
-                    key={invoice.id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/faturas/${invoice.id}`)}
-                  >
-                    <TableCell className="whitespace-nowrap font-medium">
-                      {invoice.number}
-                    </TableCell>
-
-                    <TableCell>
-                      <p className="max-w-[180px] truncate text-foreground">
-                        {invoice.client.name}
-                      </p>
-                      <p className="max-w-[180px] truncate text-xs text-muted-foreground lg:hidden">
-                        {invoice.description ?? 'Sem descrição'}
-                      </p>
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
-                      {invoice.contract ? (
-                        invoice.contract.number
-                      ) : (
-                        <span className="text-muted-foreground">Avulsa</span>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="hidden max-w-[220px] truncate lg:table-cell">
-                      {invoice.description ?? <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap tabular-nums">
+            <MobileList label="Faturas" until="xl">
+              {data?.items.map((invoice) => (
+                <MobileListItem
+                  key={invoice.id}
+                  to={`/faturas/${invoice.id}`}
+                  title={invoice.number}
+                  subtitle={[invoice.client.name, invoice.description].filter(Boolean).join(' · ')}
+                  aside={
+                    <>
                       {formatCurrency(invoice.amount)}
-                      {/* Pagamento parcial precisa aparecer aqui: sem isso, uma
-                          fatura de R$ 1.200 com R$ 800 pagos parece intocada. */}
-                      {Number(invoice.paidAmount) > 0 &&
-                        Number(invoice.outstanding) > 0 && (
-                          <p className="text-xs text-amber-700">
-                            resta {formatCurrency(invoice.outstanding)}
-                          </p>
-                        )}
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
-                      {formatDate(invoice.issueDate)}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap">
-                      {formatDate(invoice.dueDate)}
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap md:table-cell">
-                      {invoice.lastPaymentDate ? (
-                        formatDate(invoice.lastPaymentDate)
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
+                      {Number(invoice.paidAmount) > 0 && Number(invoice.outstanding) > 0 && (
+                        <p className="text-xs font-normal text-amber-700">
+                          resta {formatCurrency(invoice.outstanding)}
+                        </p>
                       )}
-                    </TableCell>
-
-                    <TableCell>
+                    </>
+                  }
+                  footer={
+                    <>
                       <InvoiceStatusBadge
                         status={invoice.status}
                         daysOverdue={invoice.daysOverdue}
                       />
-                    </TableCell>
+                      <span>Vence {formatDate(invoice.dueDate)}</span>
+                    </>
+                  }
+                />
+              ))}
+            </MobileList>
 
-                    <TableCell className="text-right">
-                      {/* stopPropagation: sem ele, clicar em Editar abriria a
-                          ficha (clique da linha) e logo em seguida a edição. */}
-                      <div
-                        className="flex justify-end gap-1"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes">
-                          <Link to={`/faturas/${invoice.id}`}>
-                            <Eye />
-                          </Link>
-                        </Button>
-                        <Button variant="ghost" size="icon" asChild aria-label="Editar fatura">
-                          <Link to={`/faturas/${invoice.id}/editar`}>
-                            <Pencil />
-                          </Link>
-                        </Button>
-                      </div>
-                    </TableCell>
+            {/* Colunas extras um degrau depois do que a janela sugere: a partir
+                de lg o menu lateral ocupa 256px da largura. */}
+            <div className={tableFrom('xl')}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead
+                      label="Número"
+                      column="number"
+                      activeColumn={sort}
+                      order={order}
+                      onSort={toggleSort}
+                    />
+                    <SortableHead
+                      label="Cliente"
+                      column="client"
+                      activeColumn={sort}
+                      order={order}
+                      onSort={toggleSort}
+                    />
+                    <TableHead className="hidden 2xl:table-cell">Contrato</TableHead>
+                    <TableHead className="hidden 2xl:table-cell">Descrição</TableHead>
+                    <SortableHead
+                      label="Valor"
+                      column="amount"
+                      activeColumn={sort}
+                      order={order}
+                      onSort={toggleSort}
+                    />
+                    <SortableHead
+                      label="Emissão"
+                      column="issueDate"
+                      activeColumn={sort}
+                      order={order}
+                      onSort={toggleSort}
+                      className="hidden 2xl:table-cell"
+                    />
+                    <SortableHead
+                      label="Vencimento"
+                      column="dueDate"
+                      activeColumn={sort}
+                      order={order}
+                      onSort={toggleSort}
+                    />
+                    <TableHead className="hidden 2xl:table-cell">Pagamento</TableHead>
+                    <TableHead>Situação</TableHead>
+                    <TableHead className="w-[100px] text-right">Ações</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+
+                <TableBody>
+                  {data?.items.map((invoice) => (
+                    <TableRow
+                      key={invoice.id}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/faturas/${invoice.id}`)}
+                    >
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {invoice.number}
+                      </TableCell>
+
+                      <TableCell>
+                        <p className="max-w-[180px] truncate text-foreground">
+                          {invoice.client.name}
+                        </p>
+                        <p className="max-w-[180px] truncate text-xs text-muted-foreground 2xl:hidden">
+                          {invoice.description ?? 'Sem descrição'}
+                        </p>
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap 2xl:table-cell">
+                        {invoice.contract ? (
+                          invoice.contract.number
+                        ) : (
+                          <span className="text-muted-foreground">Avulsa</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="hidden max-w-[220px] truncate 2xl:table-cell">
+                        {invoice.description ?? <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {formatCurrency(invoice.amount)}
+                        {/* Pagamento parcial precisa aparecer aqui: sem isso, uma
+                          fatura de R$ 1.200 com R$ 800 pagos parece intocada. */}
+                        {Number(invoice.paidAmount) > 0 && Number(invoice.outstanding) > 0 && (
+                          <p className="text-xs text-amber-700">
+                            resta {formatCurrency(invoice.outstanding)}
+                          </p>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap 2xl:table-cell">
+                        {formatDate(invoice.issueDate)}
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap">
+                        {formatDate(invoice.dueDate)}
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap 2xl:table-cell">
+                        {invoice.lastPaymentDate ? (
+                          formatDate(invoice.lastPaymentDate)
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell>
+                        <InvoiceStatusBadge
+                          status={invoice.status}
+                          daysOverdue={invoice.daysOverdue}
+                        />
+                      </TableCell>
+
+                      <TableCell className="text-right">
+                        {/* stopPropagation: sem ele, clicar em Editar abriria a
+                          ficha (clique da linha) e logo em seguida a edição. */}
+                        <div
+                          className="flex justify-end gap-1"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes">
+                            <Link to={`/faturas/${invoice.id}`}>
+                              <Eye />
+                            </Link>
+                          </Button>
+                          <Button variant="ghost" size="icon" asChild aria-label="Editar fatura">
+                            <Link to={`/faturas/${invoice.id}/editar`}>
+                              <Pencil />
+                            </Link>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
               <p className="text-xs text-muted-foreground">
@@ -573,52 +615,6 @@ function AmountRangeField({
           aria-label="Valor máximo"
         />
       </div>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<InvoiceListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<InvoiceListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-56" />
-          </div>
-          <Skeleton className="hidden h-4 w-24 sm:block" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-      ))}
     </div>
   );
 }

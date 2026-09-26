@@ -40,11 +40,11 @@ export function StatCard({
 }: StatCardProps) {
   return (
     <Card className="transition-shadow hover:shadow-card-hover">
-      <CardContent className="flex items-start gap-4 p-5">
+      <CardContent className="flex items-start gap-3 p-4 sm:gap-4 sm:p-5">
         <span
           aria-hidden="true"
           className={cn(
-            'flex size-11 shrink-0 items-center justify-center rounded-lg',
+            'flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-11',
             TONE_STYLES[tone],
           )}
         >
@@ -52,14 +52,16 @@ export function StatCard({
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
+          {/* O rótulo quebra linha em vez de truncar: num card estreito,
+              "Contratos ven…" não diz de que número se trata. */}
+          <p className="text-sm font-medium leading-snug text-muted-foreground">{label}</p>
 
           {isLoading ? (
             <Skeleton className="mt-2 h-7 w-24" />
           ) : (
             // tabular-nums mantém os dígitos com a mesma largura, então os
             // valores dos cards ficam alinhados entre si.
-            <p className="mt-1 truncate text-2xl font-semibold tabular-nums text-foreground">
+            <p className="mt-1 truncate text-xl font-semibold tabular-nums text-foreground sm:text-2xl">
               {value}
             </p>
           )}
@@ -68,7 +70,7 @@ export function StatCard({
             (isLoading ? (
               <Skeleton className="mt-2 h-3 w-20" />
             ) : (
-              <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">{hint}</p>
             ))}
         </div>
       </CardContent>

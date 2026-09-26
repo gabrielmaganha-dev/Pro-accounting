@@ -1,9 +1,6 @@
 import {
-  ArrowDownAZ,
-  ArrowUpAZ,
   CalendarClock,
   Eye,
-  FileText,
   FilePlus2,
   Pencil,
   Plus,
@@ -15,7 +12,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -37,6 +37,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useContracts } from '@/hooks/use-contracts';
+import { tableFrom } from '@/lib/list-layout';
 import { CONTRACT_STATUS_OPTIONS, type ContractListFilters } from '@/types/contract';
 import { CONTRACT_STATUS_LABELS } from '@/types/dashboard';
 import { formatCurrency, formatDate } from '@/utils/format';
@@ -66,7 +67,9 @@ export function ContractsListPage() {
   const search = searchParams.get('search') ?? '';
   const status = searchParams.get('status') ?? '';
   const expiring = searchParams.get('expiringInDays') ?? '';
-  const sort = (searchParams.get('sort') ?? 'createdAt') as NonNullable<ContractListFilters['sort']>;
+  const sort = (searchParams.get('sort') ?? 'createdAt') as NonNullable<
+    ContractListFilters['sort']
+  >;
   const order = (searchParams.get('order') ?? 'desc') as 'asc' | 'desc';
 
   // Campo de busca com estado próprio + atraso: sem isso, cada tecla digitada
@@ -112,7 +115,7 @@ export function ContractsListPage() {
     [page, search, status, expiring, sort, order],
   );
 
-  const { data, isPending, isFetching, isError, error } = useContracts(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = useContracts(filters);
 
   const hasActiveFilters = Boolean(search || status || expiring);
 
@@ -165,12 +168,12 @@ export function ContractsListPage() {
               value={status || ALL}
               onValueChange={(value) => updateParams({ status: value, page: '1' })}
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filtrar por situação">
+              <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filtrar por situação">
                 <SlidersHorizontal className="size-4 text-muted-foreground" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Todas situações</SelectItem>
+                <SelectItem value={ALL}>Todas as situações</SelectItem>
                 {CONTRACT_STATUS_OPTIONS.map((option) => (
                   <SelectItem key={option} value={option}>
                     {CONTRACT_STATUS_LABELS[option]}
@@ -184,6 +187,7 @@ export function ContractsListPage() {
             <Button
               variant={expiring ? 'default' : 'outline'}
               size="sm"
+              aria-pressed={Boolean(expiring)}
               onClick={() =>
                 updateParams({
                   expiringInDays: expiring ? '' : String(EXPIRING_WINDOW_DAYS),
@@ -212,13 +216,14 @@ export function ContractsListPage() {
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
         {isError ? (
-          <EmptyState
+          <ErrorState
             title="Não foi possível carregar os contratos"
-            description={error instanceof Error ? error.message : undefined}
-            icon={FileText}
+            error={error}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
-          <TableSkeleton />
+          <ListSkeleton />
         ) : data && data.items.length === 0 ? (
           <EmptyState
             title={hasActiveFilters ? 'Nenhum contrato encontrado' : 'Nenhum contrato cadastrado'}
@@ -249,135 +254,158 @@ export function ContractsListPage() {
           />
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortButton
+            <MobileList label="Contratos" until="lg">
+              {data?.items.map((contract) => (
+                <MobileListItem
+                  key={contract.id}
+                  to={`/contratos/${contract.id}`}
+                  title={contract.number}
+                  subtitle={`${contract.client.name} · ${contract.serviceType}`}
+                  aside={
+                    <>
+                      {formatCurrency(contract.monthlyValue)}
+                      <span className="text-xs font-normal text-muted-foreground"> /mês</span>
+                    </>
+                  }
+                  footer={
+                    <>
+                      <ContractStatusBadge status={contract.status} />
+                      <span>
+                        {contract.endDate
+                          ? `Término ${formatDate(contract.endDate)}`
+                          : 'Prazo indeterminado'}
+                      </span>
+                    </>
+                  }
+                />
+              ))}
+            </MobileList>
+
+            {/* Colunas extras um degrau depois do que a janela sugere: a partir
+                de lg o menu lateral ocupa 256px da largura. */}
+            <div className={tableFrom('lg')}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortableHead
                       label="Número"
                       column="number"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
+                    <SortableHead
                       label="Cliente"
                       column="client"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead className="hidden lg:table-cell">Serviço</TableHead>
-                  <TableHead>
-                    <SortButton
+                    <TableHead className="hidden 2xl:table-cell">Serviço</TableHead>
+                    <SortableHead
                       label="Valor mensal"
                       column="monthlyValue"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
                     />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
+                    <SortableHead
                       label="Início"
                       column="startDate"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
+                      className="hidden 2xl:table-cell"
                     />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
+                    <SortableHead
                       label="Término"
                       column="endDate"
                       activeColumn={sort}
                       order={order}
-                      onClick={toggleSort}
+                      onSort={toggleSort}
+                      className="hidden xl:table-cell"
                     />
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">Vencimento</TableHead>
-                  <TableHead>Situação</TableHead>
-                  <TableHead className="w-[100px] text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {data?.items.map((contract) => (
-                  <TableRow
-                    key={contract.id}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/contratos/${contract.id}`)}
-                  >
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {contract.number}
-                    </TableCell>
-
-                    <TableCell>
-                      <p className="max-w-[200px] truncate text-foreground">
-                        {contract.client.name}
-                      </p>
-                      {/* Abaixo de 1024px o serviço não tem coluna própria,
-                          então aparece aqui como subtítulo em vez de sumir. */}
-                      <p className="max-w-[200px] truncate text-xs text-muted-foreground lg:hidden">
-                        {contract.serviceType}
-                      </p>
-                    </TableCell>
-
-                    <TableCell className="hidden max-w-[200px] truncate lg:table-cell">
-                      {contract.serviceType}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {formatCurrency(contract.monthlyValue)}
-                      <span className="text-xs text-muted-foreground"> /mês</span>
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
-                      {formatDate(contract.startDate)}
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
-                      {contract.endDate ? (
-                        formatDate(contract.endDate)
-                      ) : (
-                        <span className="text-muted-foreground">Indeterminado</span>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="hidden whitespace-nowrap tabular-nums md:table-cell">
-                      Dia {contract.dueDay}
-                    </TableCell>
-
-                    <TableCell>
-                      <ContractStatusBadge status={contract.status} />
-                    </TableCell>
-
-                    <TableCell className="text-right">
-                      {/* stopPropagation: sem ele, clicar em Editar abriria a
-                          ficha (clique da linha) e logo em seguida a edição. */}
-                      <div
-                        className="flex justify-end gap-1"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes">
-                          <Link to={`/contratos/${contract.id}`}>
-                            <Eye />
-                          </Link>
-                        </Button>
-                        <Button variant="ghost" size="icon" asChild aria-label="Editar contrato">
-                          <Link to={`/contratos/${contract.id}/editar`}>
-                            <Pencil />
-                          </Link>
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <TableHead className="hidden 2xl:table-cell">Vencimento</TableHead>
+                    <TableHead>Situação</TableHead>
+                    <TableHead className="w-[100px] text-right">Ações</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+
+                <TableBody>
+                  {data?.items.map((contract) => (
+                    <TableRow
+                      key={contract.id}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/contratos/${contract.id}`)}
+                    >
+                      <TableCell className="font-medium whitespace-nowrap">
+                        {contract.number}
+                      </TableCell>
+
+                      <TableCell>
+                        <p className="max-w-[200px] truncate text-foreground">
+                          {contract.client.name}
+                        </p>
+                        {/* Sem coluna própria de serviço (abaixo de 2xl), ele
+                          aparece aqui como subtítulo em vez de sumir. */}
+                        <p className="max-w-[200px] truncate text-xs text-muted-foreground 2xl:hidden">
+                          {contract.serviceType}
+                        </p>
+                      </TableCell>
+
+                      <TableCell className="hidden max-w-[200px] truncate 2xl:table-cell">
+                        {contract.serviceType}
+                      </TableCell>
+
+                      <TableCell className="whitespace-nowrap tabular-nums">
+                        {formatCurrency(contract.monthlyValue)}
+                        <span className="text-xs text-muted-foreground"> /mês</span>
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap 2xl:table-cell">
+                        {formatDate(contract.startDate)}
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap xl:table-cell">
+                        {contract.endDate ? (
+                          formatDate(contract.endDate)
+                        ) : (
+                          <span className="text-muted-foreground">Indeterminado</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="hidden whitespace-nowrap tabular-nums 2xl:table-cell">
+                        Dia {contract.dueDay}
+                      </TableCell>
+
+                      <TableCell>
+                        <ContractStatusBadge status={contract.status} />
+                      </TableCell>
+
+                      <TableCell className="text-right">
+                        {/* stopPropagation: sem ele, clicar em Editar abriria a
+                          ficha (clique da linha) e logo em seguida a edição. */}
+                        <div
+                          className="flex justify-end gap-1"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Button variant="ghost" size="icon" asChild aria-label="Ver detalhes">
+                            <Link to={`/contratos/${contract.id}`}>
+                              <Eye />
+                            </Link>
+                          </Button>
+                          <Button variant="ghost" size="icon" asChild aria-label="Editar contrato">
+                            <Link to={`/contratos/${contract.id}/editar`}>
+                              <Pencil />
+                            </Link>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
             {data && (
               <Pagination
@@ -392,52 +420,6 @@ export function ContractsListPage() {
           </>
         )}
       </Card>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<ContractListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<ContractListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-56" />
-          </div>
-          <Skeleton className="hidden h-4 w-24 sm:block" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-      ))}
     </div>
   );
 }

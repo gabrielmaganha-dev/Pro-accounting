@@ -25,7 +25,17 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">
+      {/* Primeiro item da tabulação: sem ele, quem navega pelo teclado passa
+          pelos oito itens do menu em TODA página antes de chegar ao conteúdo.
+          Só aparece quando recebe foco. */}
+      <a
+        href="#conteudo-principal"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg"
+      >
+        Pular para o conteúdo
+      </a>
+
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block" aria-label="Menu lateral">
         <SidebarContent />
       </aside>
 
@@ -44,7 +54,11 @@ export function AppLayout() {
       <div className="lg:pl-64">
         <Topbar onOpenMenu={() => setIsMobileMenuOpen(true)} />
 
-        <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+        <main
+          id="conteudo-principal"
+          tabIndex={-1}
+          className="mx-auto w-full max-w-[1400px] px-4 py-6 focus:outline-none focus-visible:ring-0 sm:px-6 lg:px-8"
+        >
           <Outlet />
         </main>
       </div>

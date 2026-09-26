@@ -224,8 +224,14 @@ export async function updateClient(
   }
 
   // Autorização por campo. O funcionário pode editar contato, não identidade.
+  //
+  // O que conta é o que MUDA, não o que veio no corpo: o formulário de edição
+  // reenvia todos os campos, inclusive nome e CPF/CNPJ intocados. Barrar pela
+  // simples presença da chave impedia o funcionário de salvar qualquer edição.
   if (user.role !== 'ADMIN') {
-    const blocked = Object.keys(input).filter(
+    const changedFields = diffFields(current, input).map((change) => change.field);
+
+    const blocked = changedFields.filter(
       (field) => !(EMPLOYEE_EDITABLE_FIELDS as readonly string[]).includes(field),
     );
 
@@ -317,6 +323,10 @@ function diffFields(current: Client, input: Record<string, unknown>): FieldChang
   const changes: FieldChange[] = [];
 
   for (const [field, rawNewValue] of Object.entries(input)) {
+    // Ausente = "não mexer". Tratar como null registraria uma limpeza que
+    // ninguém pediu.
+    if (rawNewValue === undefined) continue;
+
     const oldValue = current[field as keyof Client];
 
     const normalizedOld = oldValue === null || oldValue === undefined ? null : String(oldValue);

@@ -9,6 +9,7 @@ import { authMiddleware } from './middlewares/auth.middleware.js';
 import { registerErrorHandler } from './middlewares/error.middleware.js';
 import { roleMiddleware } from './middlewares/role.middleware.js';
 import { registerRoutes } from './routes/index.js';
+import { AppError } from './utils/app-error.js';
 
 /**
  * Monta a aplicação sem abrir a porta.
@@ -21,19 +22,23 @@ import { registerRoutes } from './routes/index.js';
  */
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: env.isDevelopment
-      ? {
-          level: 'info',
-          transport: {
-            target: 'pino-pretty',
-            options: {
-              translateTime: 'HH:MM:ss',
-              ignore: 'pid,hostname',
-              colorize: true,
+    // Nos testes o log de cada requisição simulada soterraria o relatório da
+    // suíte; as falhas aparecem pelas asserções, não pelo log.
+    logger: env.isTest
+      ? false
+      : env.isDevelopment
+        ? {
+            level: 'info',
+            transport: {
+              target: 'pino-pretty',
+              options: {
+                translateTime: 'HH:MM:ss',
+                ignore: 'pid,hostname',
+                colorize: true,
+              },
             },
-          },
-        }
-      : { level: 'info' },
+          }
+        : { level: 'info' },
 
     // Necessário atrás de proxy/nginx para que o rate limit enxergue o IP real
     // do cliente, e não o do proxy (que bloquearia todo mundo de uma vez).
@@ -84,14 +89,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(rateLimit, {
     max: 300,
     timeWindow: '1 minute',
-    // Mantém o mesmo envelope de erro do resto da API.
-    errorResponseBuilder: (_request, context) => ({
-      success: false,
-      error: {
-        code: 'TOO_MANY_REQUESTS',
-        message: `Muitas tentativas. Tente novamente em ${Math.ceil(context.ttl / 1000)} segundo(s).`,
-      },
-    }),
+    // O plugin LANÇA o que este builder devolve, e o handler central de erros
+    // monta a resposta. Por isso precisa ser um AppError (com statusCode 429):
+    // um objeto literal sem statusCode chegava ao handler como falha
+    // desconhecida e virava 500 — exatamente quando alguém insistia no login.
+    errorResponseBuilder: (_request, context) =>
+      AppError.tooManyRequests(
+        `Muitas tentativas. Tente novamente em ${Math.ceil(context.ttl / 1000)} segundo(s).`,
+      ),
   });
 
   // 4. JWT. A validade dos tokens é definida aqui uma única vez, e não em cada

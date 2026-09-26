@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   FileText,
   History,
+  Pencil,
   ReceiptText,
   RotateCcw,
   SquareArrowOutUpRight,
@@ -16,6 +17,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { ListSkeleton } from '@/components/common/ListSkeleton';
+import { MobileList, MobileListItem } from '@/components/common/MobileList';
+import { Pagination } from '@/components/common/Pagination';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { RegisterPaymentDialog } from '@/components/invoices/RegisterPaymentDialog';
@@ -50,7 +55,9 @@ import {
   useRemovePayment,
   useUpdateInvoiceStatus,
 } from '@/hooks/use-invoices';
+import { tableFrom } from '@/lib/list-layout';
 import { cn } from '@/lib/utils';
+import { isNotFound } from '@/services/api';
 import { PAYMENT_METHOD_LABELS } from '@/types/dashboard';
 import {
   INVOICE_HISTORY_ACTION_LABELS,
@@ -63,13 +70,14 @@ import {
   formatDate,
   formatDateTime,
 } from '@/utils/format';
+import { todayIso } from '@/utils/date';
 
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const { data: invoice, isPending, isError } = useInvoice(id);
+  const { data: invoice, isPending, isError, error, refetch, isFetching } = useInvoice(id);
   const statusMutation = useUpdateInvoiceStatus();
   const deleteMutation = useDeleteInvoice();
 
@@ -81,6 +89,19 @@ export function InvoiceDetailPage() {
   const isAdmin = user?.role === 'ADMIN';
 
   if (isPending) return <DetailSkeleton />;
+
+  if (isError && !isNotFound(error)) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar a fatura"
+          error={error}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
+      </Card>
+    );
+  }
 
   if (isError || !invoice) {
     return (
@@ -107,7 +128,7 @@ export function InvoiceDetailPage() {
     <div className="space-y-5">
       {/* ---------------- Cabeçalho ---------------- */}
       <div className="flex flex-wrap items-start gap-3">
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar">
+        <Button variant="ghost" size="icon" className="shrink-0" asChild aria-label="Voltar">
           <Link to="/faturas">
             <ArrowLeft />
           </Link>
@@ -143,7 +164,10 @@ export function InvoiceDetailPage() {
 
           {!isCancelled && (
             <Button variant="outline" asChild>
-              <Link to={`/faturas/${invoice.id}/editar`}>Editar</Link>
+              <Link to={`/faturas/${invoice.id}/editar`}>
+                <Pencil />
+                Editar
+              </Link>
             </Button>
           )}
 
@@ -423,14 +447,6 @@ export function InvoiceDetailPage() {
 
 // ---------------------------------------------------------------------------
 
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
 /** Legenda do card de vencimento: quantos dias faltam ou já passaram. */
 function dueHint(invoice: Invoice): string | undefined {
   if (invoice.storedStatus === 'CANCELLED') return undefined;
@@ -524,18 +540,28 @@ function Field({
 
 /** Lista de pagamentos, com estorno para administradores. */
 function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean }) {
-  const { data: payments, isPending } = useInvoicePayments(invoice.id);
+  const { data: payments, isPending, isFetching, isError, error, refetch } = useInvoicePayments(invoice.id);
   const removeMutation = useRemovePayment();
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   if (isPending) {
     return (
       <Card>
-        <CardContent className="space-y-3 p-4">
-          {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-12 w-full" />
-          ))}
-        </CardContent>
+        <ListSkeleton rows={3} />
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar os pagamentos"
+          error={error}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+          compact
+        />
       </Card>
     );
   }
@@ -559,6 +585,37 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
 
   return (
     <Card className="overflow-hidden">
+      <MobileList label="Pagamentos da fatura">
+        {payments.map((payment) => (
+          <MobileListItem
+            key={payment.id}
+            title={
+              <span className="tabular-nums text-emerald-700">
+                {formatCurrency(payment.amount)}
+              </span>
+            }
+            subtitle={`${formatDate(payment.paymentDate)} · ${PAYMENT_METHOD_LABELS[payment.paymentMethod]} · por ${payment.registeredByName}`}
+            {...(payment.notes ? { footer: <span>{payment.notes}</span> } : {})}
+            {...(isAdmin
+              ? {
+                  action: (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmId(payment.id)}
+                      aria-label={`Estornar pagamento de ${formatCurrency(payment.amount)}`}
+                    >
+                      <Undo2 />
+                      Estornar
+                    </Button>
+                  ),
+                }
+              : {})}
+          />
+        ))}
+      </MobileList>
+
+      <div className={tableFrom('md')}>
       <Table>
         <TableHeader>
           <TableRow>
@@ -594,7 +651,7 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
                     variant="ghost"
                     size="sm"
                     onClick={() => setConfirmId(payment.id)}
-                    aria-label="Estornar pagamento"
+                    aria-label={`Estornar pagamento de ${formatCurrency(payment.amount)}`}
                   >
                     <Undo2 />
                     Estornar
@@ -605,6 +662,7 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
           ))}
         </TableBody>
       </Table>
+      </div>
 
       <AlertDialog open={confirmId !== null} onOpenChange={() => setConfirmId(null)}>
         <AlertDialogContent>
@@ -637,16 +695,26 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
 
 function HistoryTab({ invoiceId }: { invoiceId: string }) {
   const [page, setPage] = useState(1);
-  const { data, isPending } = useInvoiceHistory(invoiceId, page);
+  const { data, isPending, isFetching, isError, error, refetch } = useInvoiceHistory(invoiceId, page);
 
   if (isPending) {
     return (
       <Card>
-        <CardContent className="space-y-3 p-4">
-          {[0, 1, 2, 3].map((index) => (
-            <Skeleton key={index} className="h-12 w-full" />
-          ))}
-        </CardContent>
+        <ListSkeleton rows={4} />
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o histórico"
+          error={error}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+          compact
+        />
       </Card>
     );
   }
@@ -687,26 +755,14 @@ function HistoryTab({ invoiceId }: { invoiceId: string }) {
         ))}
       </ul>
 
-      {data.totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Página {data.page} de {data.totalPages}
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-              Anterior
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= data.totalPages}
-              onClick={() => setPage(page + 1)}
-            >
-              Próxima
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={data.page}
+        pageSize={data.pageSize}
+        total={data.total}
+        totalPages={data.totalPages}
+        onPageChange={setPage}
+        disabled={isFetching}
+      />
     </Card>
   );
 }
