@@ -50,28 +50,33 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   const app = Fastify({
     /**
+     * Testes: sem log. O de cada requisição simulada soterraria o relatório
+     * da suíte; as falhas aparecem pelas asserções, não pelo log.
+     *
      * Desenvolvimento: linha colorida e legível no terminal (pino-pretty).
      *
      * Produção: JSON puro, uma linha por evento, na saída padrão. Não há
      * arquivo de log nem rotação aqui de propósito — quem guarda, rotaciona e
      * envia o log é a plataforma (o driver de log do Docker, no compose de
-     * produção). Um processo que escreve o próprio arquivo dentro do container
-     * perde o log junto com o container.
+     * produção; o painel de logs, na Vercel). Um processo que escreve o
+     * próprio arquivo dentro do container perde o log junto com o container.
      */
-    logger: env.isDevelopment
-      ? {
-          level: env.LOG_LEVEL,
-          redact: { paths: redactPaths, remove: true },
-          transport: {
-            target: 'pino-pretty',
-            options: {
-              translateTime: 'HH:MM:ss',
-              ignore: 'pid,hostname',
-              colorize: true,
+    logger: env.isTest
+      ? false
+      : env.isDevelopment
+        ? {
+            level: env.LOG_LEVEL,
+            redact: { paths: redactPaths, remove: true },
+            transport: {
+              target: 'pino-pretty',
+              options: {
+                translateTime: 'HH:MM:ss',
+                ignore: 'pid,hostname',
+                colorize: true,
+              },
             },
-          },
-        }
-      : { level: env.LOG_LEVEL, redact: { paths: redactPaths, remove: true } },
+          }
+        : { level: env.LOG_LEVEL, redact: { paths: redactPaths, remove: true } },
 
     // Necessário atrás de proxy/nginx para que o rate limit enxergue o IP real
     // do cliente, e não o do proxy (que bloquearia todo mundo de uma vez).

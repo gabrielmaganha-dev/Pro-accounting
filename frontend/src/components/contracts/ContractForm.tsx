@@ -28,6 +28,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import { useNextContractNumber } from '@/hooks/use-contracts';
+import { useServerFieldErrors } from '@/hooks/use-server-field-errors';
 import {
   CONTRACT_STATUS_HINTS,
   CONTRACT_STATUS_OPTIONS,
@@ -37,6 +38,7 @@ import {
 } from '@/types/contract';
 import { CONTRACT_STATUS_LABELS } from '@/types/dashboard';
 import { maskCurrency, parseCurrency, toCurrencyInput } from '@/utils/mask';
+import { todayIso } from '@/utils/date';
 
 /**
  * Validação do formulário — espelha backend/src/validators/contract.validator.ts.
@@ -110,6 +112,8 @@ interface ContractFormProps {
   onSubmit: (payload: ContractPayload) => void;
   onCancel: () => void;
   isSubmitting: boolean;
+  /** Erro devolvido pela API na última submissão — destacado nos campos. */
+  serverError?: unknown;
 }
 
 export function ContractForm({
@@ -118,6 +122,7 @@ export function ContractForm({
   onSubmit,
   onCancel,
   isSubmitting,
+  serverError,
 }: ContractFormProps) {
   const { user } = useAuth();
   const isEditing = contract !== undefined;
@@ -132,6 +137,11 @@ export function ContractForm({
     defaultValues: contract
       ? toFormValues(contract)
       : { ...EMPTY_VALUES, clientId: initialClient?.id ?? '', startDate: todayIso() },
+  });
+
+  useServerFieldErrors(form, serverError, {
+    conflictField: 'number',
+    conflictPattern: /número/i,
   });
 
   // Só busca sugestão de número em cadastro novo: numa edição o contrato já
@@ -448,15 +458,6 @@ export function ContractForm({
       </form>
     </Form>
   );
-}
-
-/** Data de hoje em `YYYY-MM-DD`, no fuso do navegador. */
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-
-  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 /** Converte o contrato da API para os valores do formulário. */

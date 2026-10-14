@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { isValidIsoDate } from '../utils/date.js';
+import { isValidIsoDate, today } from '../utils/date.js';
 
 /**
  * Schemas de entrada do módulo de faturas.
@@ -130,7 +130,17 @@ export const updateInvoiceStatusSchema = z.object({
 
 export const registerPaymentSchema = z.object({
   amount: moneySchema('valor do pagamento'),
-  paymentDate: isoDateSchema,
+
+  /**
+   * Nunca no futuro — "hoje" no fuso do escritório.
+   *
+   * Pagamento é dinheiro que JÁ entrou. Um lançamento com data futura
+   * apareceria como recebido no painel e no financeiro antes de o dinheiro
+   * existir no extrato, e a conciliação bancária não fecharia.
+   */
+  paymentDate: isoDateSchema.refine((value) => value <= today(), {
+    message: 'A data do pagamento não pode ser no futuro.',
+  }),
   paymentMethod: z.enum(PAYMENT_METHODS, {
     required_error: 'Selecione a forma de pagamento.',
     invalid_type_error: 'Forma de pagamento inválida.',
@@ -149,7 +159,15 @@ export const registerPaymentSchema = z.object({
    * nunca o comportamento automático de um cliente HTTP que reenviou a
    * requisição.
    */
-  confirmDuplicate: z.coerce.boolean().default(false),
+  confirmDuplicate: z
+    // `z.coerce.boolean()` seria perigoso aqui: ele converte QUALQUER string
+    // não vazia em true — inclusive "false" —, e um cliente HTTP que mandasse
+    // o valor como texto liberaria a duplicata sem ninguém ter confirmado.
+    .preprocess(
+      (value) => (value === 'true' ? true : value === 'false' ? false : value),
+      z.boolean({ invalid_type_error: 'Confirmação de duplicidade inválida.' }),
+    )
+    .default(false),
 });
 
 export type RegisterPaymentInput = z.infer<typeof registerPaymentSchema>;

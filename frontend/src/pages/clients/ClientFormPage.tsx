@@ -97,7 +97,7 @@ export function ClientFormPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-3">
-        <Button variant="ghost" size="icon" asChild aria-label="Voltar">
+        <Button variant="ghost" size="icon" className="shrink-0" asChild aria-label="Voltar">
           <Link to={isEditing && id ? `/clientes/${id}` : '/clientes'}>
             <ArrowLeft />
           </Link>
@@ -120,6 +120,7 @@ export function ClientFormPage() {
         onSubmit={handleSubmit}
         onCancel={handleCancel}
         isSubmitting={isSubmitting}
+        serverError={isEditing ? updateMutation.error : createMutation.error}
       />
     </div>
   );

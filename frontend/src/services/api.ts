@@ -23,6 +23,11 @@ export class ApiError extends Error {
   }
 }
 
+/** 404 da API: o registro não existe (em vez de uma falha de rede ou servidor). */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 /**
  * Evento disparado quando a API rejeita o token em uma rota autenticada.
  *

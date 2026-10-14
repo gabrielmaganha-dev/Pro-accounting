@@ -48,10 +48,20 @@ export function toCsvFile(document: ReportDocument, baseName: string): ReportFil
 }
 
 function serialize(rows: string[][]): string {
-  const escape = (cell: string): string => {
+  const escape = (rawCell: string): string => {
+    // Injeção de fórmula: o Excel executa como fórmula qualquer célula que
+    // comece com = + - @ (ou tab/CR). Nome de cliente e número de fatura são
+    // digitados por usuários, então um cliente cadastrado como
+    // `=HYPERLINK(...)` viraria um link malicioso na planilha de quem exporta.
+    // O apóstrofo força o Excel a tratar a célula como texto. Número puro
+    // (inclusive negativo, como um saldo "-150,00") fica como está: não há
+    // fórmula ali, e o apóstrofo impediria a soma da coluna.
+    const isPlainNumber = /^-?\d[\d.,]*$/.test(rawCell);
+    const cell = !isPlainNumber && /^[=+\-@\t\r]/.test(rawCell) ? `'${rawCell}` : rawCell;
+
     // Aspas duplas, ponto e vírgula ou quebra de linha exigem o campo entre
     // aspas, com as aspas internas duplicadas.
-    if (/["\n;]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`;
+    if (/["\r\n;]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`;
     return cell;
   };
 

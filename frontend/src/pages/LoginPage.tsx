@@ -215,7 +215,7 @@ export function LoginPage() {
         Esqueceu a senha? Solicite a redefinição a um administrador.
         <br />
         {/* A recuperação por e-mail entra na etapa de autenticação completa. */}
-        Recuperação por e-mail em breve.
+        <span>Recuperação por e-mail em breve.</span>
       </p>
     </div>
   );

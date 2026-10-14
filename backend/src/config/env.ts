@@ -80,11 +80,27 @@ const envSchema = z.object({
  * variável que ela nem usa. Descartando as vazias, o opcional continua
  * opcional e o padrão de cada variável volta a valer.
  */
-const definedEnv = Object.fromEntries(
+const definedEnv: Record<string, string | undefined> = Object.fromEntries(
   Object.entries(process.env).filter(([, value]) => value !== undefined && value.trim() !== ''),
 );
 
-const parsed = envSchema.safeParse(definedEnv);
+/**
+ * Na Vercel, a integração com o Supabase injeta a conexão como
+ * STORAGE_POSTGRES_PRISMA_URL ou POSTGRES_PRISMA_URL (pooler em modo
+ * transação, já com `pgbouncer=true`) e não como DATABASE_URL. A da integração
+ * com prefixo STORAGE_ tem prioridade; fora da Vercel nenhuma delas existe e
+ * vale a DATABASE_URL de sempre.
+ */
+const databaseUrl =
+  definedEnv.STORAGE_POSTGRES_PRISMA_URL ||
+  definedEnv.DATABASE_URL ||
+  definedEnv.POSTGRES_PRISMA_URL ||
+  definedEnv.STORAGE_POSTGRES_URL;
+
+const parsed = envSchema.safeParse({
+  ...definedEnv,
+  ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+});
 
 if (!parsed.success) {
   const details = parsed.error.issues
@@ -119,10 +135,28 @@ const DEV_CORS_ORIGIN = 'http://localhost:5173';
  * barra, e a comparação é por igualdade exata — `https://app.exemplo.com/` na
  * configuração recusaria todas as requisições sem nenhuma mensagem de erro.
  */
-const corsOrigins = (raw.CORS_ORIGIN ?? (isProduction ? '' : DEV_CORS_ORIGIN))
+const configuredOrigins = (raw.CORS_ORIGIN ?? (isProduction ? '' : DEV_CORS_ORIGIN))
   .split(',')
   .map((origin) => origin.trim().replace(/\/+$/, ''))
   .filter((origin) => origin.length > 0);
+
+/**
+ * Na Vercel, os endereços do próprio deploy entram na lista sozinhos.
+ *
+ * Lá a interface e a API saem do MESMO endereço, e a plataforma informa quais
+ * são: o de produção, o do ramo e o de cada deploy. Assim ninguém precisa
+ * digitar o domínio em mais um lugar — e um deploy de pré-visualização, que
+ * ganha um endereço novo a cada envio, funciona sem configuração.
+ */
+const isVercel = definedEnv.VERCEL === '1';
+
+const vercelOrigins = isVercel
+  ? [definedEnv.VERCEL_PROJECT_PRODUCTION_URL, definedEnv.VERCEL_BRANCH_URL, definedEnv.VERCEL_URL]
+      .filter((host): host is string => host !== undefined)
+      .map((host) => `https://${host.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`)
+  : [];
+
+const corsOrigins = [...new Set([...configuredOrigins, ...vercelOrigins])];
 
 /**
  * Verificações que só fazem sentido com o conjunto completo de variáveis.
@@ -157,7 +191,9 @@ function crossFieldIssues(): string[] {
 
   if (!isProduction) return issues;
 
-  if (corsOrigins.length === 0) {
+  // Na Vercel a lista pode ficar vazia sem risco: mesma origem não depende de
+  // CORS, e lista vazia significa apenas que nenhum OUTRO site é autorizado.
+  if (corsOrigins.length === 0 && !isVercel) {
     issues.push(
       'CORS_ORIGIN: obrigatória em produção — o endereço público do sistema ' +
         '(ex.: https://app.suaempresa.com.br)',

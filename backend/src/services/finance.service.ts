@@ -13,6 +13,7 @@ import {
 } from '../utils/date.js';
 import { effectiveInvoiceStatus, fromCents, toCents } from '../utils/invoice-status.js';
 import { toCsvFile } from '../reports/formatters/csv.js';
+import { moneySummary } from '../reports/helpers.js';
 import { toPdfFile } from '../reports/formatters/pdf.js';
 import { toXlsxFile } from '../reports/formatters/xlsx.js';
 import type {
@@ -677,13 +678,11 @@ export async function exportFinanceEntries(query: FinanceExportQuery): Promise<E
       statusLabel: INVOICE_STATUS_LABELS[entry.status] ?? entry.status,
     })),
     summary: [
-      { label: 'Faturado', value: `R$ ${fromCents(billedCents)}`, kind: 'money' },
-      { label: 'Recebido', value: `R$ ${fromCents(receivedCents)}`, kind: 'money' },
-      {
-        label: 'Em aberto',
-        value: `R$ ${fromCents(Math.max(billedCents - receivedCents, 0))}`,
-        kind: 'money',
-      },
+      // Mesmo formato dos relatórios (R$ 1.234,56): com `fromCents` puro o
+      // resumo saía como "R$ 1234.56", com ponto decimal, no arquivo pt-BR.
+      moneySummary('Faturado', fromCents(billedCents)),
+      moneySummary('Recebido', fromCents(receivedCents)),
+      moneySummary('Em aberto', fromCents(Math.max(billedCents - receivedCents, 0))),
     ],
     generatedAt: new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Sao_Paulo',

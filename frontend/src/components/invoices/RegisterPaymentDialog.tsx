@@ -27,6 +27,7 @@ import { PAYMENT_METHOD_LABELS } from '@/types/dashboard';
 import { PAYMENT_METHOD_OPTIONS, type Invoice, type PaymentMethod } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/utils/format';
 import { maskCurrency, parseCurrency, toCurrencyInput } from '@/utils/mask';
+import { todayIso } from '@/utils/date';
 
 /**
  * Registro de pagamento, em duas etapas: preencher e confirmar.
@@ -111,6 +112,13 @@ export function RegisterPaymentDialog({
       return;
     }
 
+    // Espelha a regra da API: pagamento é dinheiro que já entrou. Uma data
+    // futura inflaria o recebido do período antes de o valor existir no extrato.
+    if (paymentDate > todayIso()) {
+      setError('A data do pagamento não pode ser no futuro.');
+      return;
+    }
+
     setError(null);
     setStep('confirm');
   }
@@ -191,6 +199,7 @@ export function RegisterPaymentDialog({
               <Input
                 id="payment-date"
                 type="date"
+                max={todayIso()}
                 value={paymentDate}
                 onChange={(event) => setPaymentDate(event.target.value)}
                 disabled={isBusy}
@@ -354,12 +363,4 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dd className="min-w-0 text-right text-sm text-foreground">{children}</dd>
     </div>
   );
-}
-
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-
-  return `${now.getFullYear()}-${month}-${day}`;
 }

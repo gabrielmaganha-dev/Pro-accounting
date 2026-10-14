@@ -4,6 +4,7 @@
   "private": true,
   "description": "Sistema de gestão de clientes, contratos e faturas — Pro Accounting",
   "license": "UNLICENSED",
+  "type": "module",
   "engines": {
     "node": ">=20.11.0"
   },
@@ -29,6 +30,7 @@
     "prod:ps": "docker compose --env-file .env.production -f docker-compose.production.yml ps",
     "prod:logs": "docker compose --env-file .env.production -f docker-compose.production.yml logs -f --tail=100",
     "prod:seed": "docker compose --env-file .env.production -f docker-compose.production.yml run --rm backend node dist/database/seed.js",
-    "prod:backup": "docker compose --env-file .env.production -f docker-compose.production.yml exec backup sh /scripts/backup.sh"
+    "prod:backup": "docker compose --env-file .env.production -f docker-compose.production.yml exec backup sh /scripts/backup.sh",
+    "test": "npm run test --prefix backend && npm run test --prefix frontend"
   }
 }

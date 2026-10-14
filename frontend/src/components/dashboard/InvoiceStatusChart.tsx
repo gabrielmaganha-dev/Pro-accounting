@@ -92,7 +92,7 @@ export function InvoiceStatusChart({ data }: InvoiceStatusChartProps) {
 
       {/* Legenda com rótulo direto — a codificação secundária que torna o
           gráfico legível para quem não distingue âmbar de verde. */}
-      <ul className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2">
+      <ul className="mx-auto mt-4 grid w-full max-w-md grid-cols-2 gap-x-6 gap-y-2">
         {data.map((slice) => (
           <li key={slice.status} className="flex items-center gap-2 text-sm">
             <span

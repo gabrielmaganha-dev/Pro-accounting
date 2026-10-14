@@ -31,5 +31,10 @@ export default tseslint.config(
       'prefer-const': 'error',
     },
   },
+  // Fast refresh é assunto do servidor de desenvolvimento, não dos testes.
+  {
+    files: ['tests/**/*.{ts,tsx}'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
   prettier,
 );

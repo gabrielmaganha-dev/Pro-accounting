@@ -12,6 +12,8 @@ interface EmptyStateProps {
   action?: ReactNode;
   className?: string;
   compact?: boolean;
+  /** `danger` distingue falha de carregamento de simples ausência de dados. */
+  tone?: 'neutral' | 'danger';
 }
 
 /**
@@ -28,9 +30,11 @@ export function EmptyState({
   action,
   className,
   compact = false,
+  tone = 'neutral',
 }: EmptyStateProps) {
   return (
     <div
+      role={tone === 'danger' ? 'alert' : undefined}
       className={cn(
         'flex flex-col items-center justify-center text-center',
         compact ? 'gap-2 px-4 py-8' : 'gap-3 px-6 py-12',
@@ -40,7 +44,8 @@ export function EmptyState({
       <span
         aria-hidden="true"
         className={cn(
-          'flex items-center justify-center rounded-full bg-slate-100 text-slate-400',
+          'flex items-center justify-center rounded-full',
+          tone === 'danger' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-400',
           compact ? 'size-10' : 'size-12',
         )}
       >

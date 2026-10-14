@@ -130,22 +130,29 @@ export interface ClientListFilters {
   pageSize?: number;
 }
 
+/**
+ * Corpo de cadastro e edição.
+ *
+ * Nos campos opcionais, `null` significa APAGAR o valor gravado; ausente
+ * significa não mexer. O formulário manda `null` para campo esvaziado — sem
+ * isso, limpar o e-mail de um cliente na edição não teria efeito nenhum.
+ */
 export interface ClientPayload {
   name: string;
-  companyName?: string;
+  companyName?: string | null;
   cpfCnpj: string;
-  stateRegistration?: string;
-  email?: string;
-  phone?: string;
-  whatsapp?: string;
-  zipCode?: string;
-  street?: string;
-  number?: string;
-  complement?: string;
-  neighborhood?: string;
-  city?: string;
-  state?: string;
-  notes?: string;
+  stateRegistration?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  zipCode?: string | null;
+  street?: string | null;
+  number?: string | null;
+  complement?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
+  notes?: string | null;
   status?: ClientStatus;
 }
 

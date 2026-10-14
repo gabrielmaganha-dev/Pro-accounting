@@ -34,7 +34,7 @@ export function AppLayout() {
           itens do menu a cada troca de página antes de chegar ao conteúdo.
           Fica invisível até receber foco. */}
       <a
-        href="#conteudo"
+        href="#conteudo-principal"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg"
       >
         Pular para o conteúdo
@@ -62,7 +62,7 @@ export function AppLayout() {
         {/* tabIndex -1: permite ao link "Pular para o conteúdo" mover o foco
             para cá sem colocar o <main> na ordem normal do Tab. */}
         <main
-          id="conteudo"
+          id="conteudo-principal"
           tabIndex={-1}
           className="mx-auto w-full max-w-[1400px] px-4 py-6 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:px-6 lg:px-8"
         >

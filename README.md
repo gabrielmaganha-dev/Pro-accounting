@@ -1,12 +1,14 @@
-# Pro Accounting — Sistema de Gestão Contábil
+#Pro accounting - Sistema Contabil
 
-Sistema web para gestão de **clientes, contratos e faturas** de um escritório de contabilidade.
+## Deploy na Vercel
 
-Fluxo central do sistema:
+O projeto inteiro (frontend + API) roda em um único projeto da Vercel, no mesmo
+domínio: o frontend é servido como site estático e a API do Fastify roda como
+função serverless em `/api` (ver `vercel.json` e `api/index.js`).
 
-```
-Cliente  →  Contrato  →  Faturas  →  Pagamento
-```
+A cada deploy, `scripts/vercel-build.mjs` compila o backend, aplica as
+migrations pendentes (`prisma migrate deploy`), cria o administrador (se
+configurado) e compila o frontend.
 
 > **Estado atual: sistema completo, do cadastro ao controle de acesso.**
 >
@@ -46,7 +48,14 @@ Cliente  →  Contrato  →  Faturas  →  Pagamento
 > **Pronto para produção:** imagens Docker da API e da interface, compose com PostgreSQL,
 > HTTPS automático, backup e restauração — ver a [seção 16](#16-produção).
 
----
+| Variável         | Obrigatória | Observação                                                                 |
+| ---------------- | ----------- | -------------------------------------------------------------------------- |
+| `JWT_SECRET`     | sim         | Mínimo de 32 caracteres. Gere com `openssl rand -base64 48`.               |
+| `DATABASE_URL`   | sim\*       | \*Dispensável se o Supabase estiver conectado em **Storage** na Vercel: a integração injeta `POSTGRES_PRISMA_URL` e `POSTGRES_URL_NON_POOLING`, que são usadas automaticamente. |
+| `DIRECT_URL`     | não         | Conexão usada só pelas migrations, quando `DATABASE_URL` for um pooler em modo transação. |
+| `ADMIN_EMAIL`    | não         | Com `ADMIN_PASSWORD`, cria o administrador no deploy. Nunca sobrescreve a senha de um admin existente. |
+| `ADMIN_PASSWORD` | não         | Mínimo de 8 caracteres.                                                    |
+| `ADMIN_NAME`     | não         | Padrão: "Administrador".                                                   |
 
 ## Sumário
 
@@ -65,7 +74,7 @@ Cliente  →  Contrato  →  Faturas  →  Pagamento
 13. [Solução de problemas](#13-solução-de-problemas)
 14. [Trocar o logotipo](#14-trocar-o-logotipo)
 15. [Próximas etapas](#15-próximas-etapas)
-16. [Produção](#16-produção) — deploy, HTTPS, backup, restauração e checklist
+16. [Produção](#16-produção) — deploy, HTTPS, backup, restauração, checklist e Vercel
 
 ---
 
@@ -317,7 +326,7 @@ senha do usuário `postgres` quando solicitado:
 ```powershell
 $psql = "C:\Program Files\PostgreSQL\18\bin\psql.exe"
 
-& $psql -U postgres -h localhost -c "CREATE ROLE pro_accounting WITH LOGIN PASSWORD 'proacc_dev_2026';"
+& $psql -U postgres -h localhost -c "CREATE ROLE pro_accounting WITH LOGIN PASSWORD 'troque-esta-senha';"
 & $psql -U postgres -h localhost -c "CREATE DATABASE pro_accounting OWNER pro_accounting ENCODING 'UTF8';"
 & $psql -U postgres -h localhost -c "ALTER ROLE pro_accounting CREATEDB;"
 ```
@@ -331,7 +340,7 @@ portanto, não precisa desta permissão.
 Confirme que o usuário da aplicação consegue entrar:
 
 ```powershell
-$env:PGPASSWORD = "proacc_dev_2026"
+$env:PGPASSWORD = "troque-esta-senha"
 & $psql -U pro_accounting -h localhost -d pro_accounting -tAc "SELECT current_user;"
 $env:PGPASSWORD = ""
 ```
@@ -2131,3 +2140,57 @@ O que cabe a quem opera — o projeto não tem como fazer por você:
 > teste usou a autoridade interna do Caddy, com `DOMAIN=localhost`) e a execução num servidor Linux.
 > Na primeira subida no servidor, rode o teste de fumaça contra o endereço público antes de
 > divulgá-lo.
+
+### 16.14 Deploy na Vercel
+
+Alternativa ao Docker para quem não tem servidor. O projeto inteiro roda em **um único projeto da
+Vercel**, no mesmo domínio: a interface é servida como site estático e a API do Fastify roda como
+função serverless em `/api` (`vercel.json` e `api/index.js`). O banco é um PostgreSQL gerenciado —
+o Supabase, conectado em **Storage** no painel da Vercel.
+
+Cada envio ao ramo `main` do GitHub gera um deploy de produção; outros ramos geram uma
+pré-visualização com endereço próprio. Em cada deploy, `scripts/vercel-build.mjs`:
+
+1. confere as variáveis obrigatórias;
+2. compila a API e roda a **mesma validação de configuração** que ela faz ao subir — com segredo de
+   exemplo ou valor inválido, o build para aqui e a versão anterior continua no ar;
+3. aplica as migrations pendentes (`prisma migrate deploy`, que nunca apaga dados);
+4. cria o administrador, se `ADMIN_EMAIL` e `ADMIN_PASSWORD` estiverem definidos (nunca altera a
+   senha de um administrador que já existe);
+5. compila a interface apontando para `/api`.
+
+> **Atenção:** as migrations rodam no build, **antes** de o deploy entrar no ar — e também nos
+> deploys de pré-visualização, se eles enxergarem o mesmo banco. As migrations do projeto só
+> acrescentam (tabelas, colunas, índices), então a versão anterior continua funcionando sobre o
+> banco já migrado.
+
+**Variáveis** (Project Settings → Environment Variables):
+
+| Variável         | Obrigatória | Observação                                                                 |
+| ---------------- | ----------- | -------------------------------------------------------------------------- |
+| `JWT_SECRET`     | sim         | Mínimo de 32 caracteres, **gerado** (`openssl rand -base64 48`). O valor dos arquivos de exemplo é recusado. |
+| `DATABASE_URL`   | sim\*       | \*Dispensável com o Supabase conectado em Storage: a integração injeta `STORAGE_POSTGRES_PRISMA_URL` / `POSTGRES_PRISMA_URL`, usadas automaticamente. |
+| `DIRECT_URL`     | não         | Conexão sem pooler, só para as migrations, quando `DATABASE_URL` for um pooler em modo transação. |
+| `CORS_ORIGIN`    | não         | Na Vercel os endereços do próprio deploy já são autorizados sozinhos. Preencha só para liberar **outro** site. |
+| `JWT_EXPIRES_IN` | não         | Duração da sessão. Padrão `1d`; o compose do Docker usa `8h` (um expediente). |
+| `ADMIN_EMAIL`    | não         | Com `ADMIN_PASSWORD`, cria o administrador no deploy.                      |
+| `ADMIN_PASSWORD` | não         | Mínimo de 8 caracteres. Depois do primeiro deploy, troque a senha no sistema e apague a variável. |
+| `ADMIN_NAME`     | não         | Padrão: "Administrador".                                                   |
+| `LOG_LEVEL`      | não         | Padrão `info`. Os logs ficam em Deployments → Logs.                         |
+
+**O que muda em relação ao Docker:**
+
+- **Cabeçalhos de segurança** (CSP, `X-Frame-Options`…) vêm de `vercel.json`, com os mesmos valores
+  do nginx. HTTPS e HSTS são da própria Vercel.
+- **Backup:** o serviço `backup` do compose não existe aqui. Conte com os backups do Supabase (a
+  frequência depende do plano) e, para ter uma cópia sua, rode de qualquer máquina com o PostgreSQL
+  instalado, usando a conexão **sem pooler** do painel do Supabase:
+
+  ```bash
+  pg_dump --format=custom --no-owner --file=pro_accounting-$(date +%Y%m%d).dump "postgresql://..."
+  ```
+
+- **Limite de tentativas de login** é guardado na memória de cada instância da função. Com várias
+  instâncias no ar ao mesmo tempo, o limite efetivo fica maior que 10 por minuto.
+- **Banco pausado:** o plano gratuito do Supabase pausa o banco após dias sem uso. Restaure-o no
+  painel do Supabase antes do deploy — senão as migrations falham e o build é cancelado.
