@@ -15,6 +15,43 @@
 
 @layer base {
   :root {
+    /* --- Rampa da marca ---------------------------------------------------
+       Valores PADRÃO. São sobrescritos em tempo de execução por
+       src/lib/theme.ts com as cores salvas em Configurações → Identidade
+       visual. Ficam aqui para que a tela já apareça com a marca correta antes
+       de a configuração chegar da API — sem isto, o sistema piscaria sem cor
+       nenhuma no primeiro quadro.
+
+       Formato `H S% L%` sem hsl(): é o que permite bg-brand-600/90 funcionar. */
+    --brand-50: 221 100% 97%;
+    --brand-100: 221 98% 94%;
+    --brand-200: 221 95% 86%;
+    --brand-300: 221 92% 77%;
+    --brand-400: 221 88% 66%;
+    --brand-500: 221 86% 60%;
+    --brand-600: 221 83% 53%;
+    --brand-700: 221 77% 46%;
+    --brand-800: 221 71% 38%;
+    --brand-900: 221 67% 33%;
+    --brand-950: 221 57% 21%;
+
+    --support-50: 175 100% 97%;
+    --support-100: 175 100% 93%;
+    --support-200: 175 97% 81%;
+    --support-300: 175 93% 67%;
+    --support-400: 175 89% 51%;
+    --support-500: 175 87% 42%;
+    --support-600: 175 84% 32%;
+    --support-700: 175 78% 28%;
+    --support-800: 175 72% 23%;
+    --support-900: 175 68% 20%;
+    --support-950: 175 58% 13%;
+
+    /* Hexadecimal puro para os gráficos: a biblioteca desenha em SVG e não
+       resolve variável CSS dentro dos atributos de preenchimento. */
+    --chart-primary: #2563eb;
+    --chart-secondary: #0d9488;
+
     /* Fundo da página levemente acinzentado para os cards brancos ganharem
        relevo sem precisar de sombra pesada. */
     --background: 210 40% 98%;
@@ -34,8 +71,11 @@
     --secondary-foreground: 222 47% 11%;
 
     --muted: 210 40% 96%;
-    /* slate-500 sobre branco = 4.76:1 (AA para texto normal). */
-    --muted-foreground: 215 16% 47%;
+    /* Um degrau mais escuro que o slate-500. Com 47% o texto passava sobre
+       branco (4.76:1), mas ficava em 4.29:1 sobre --muted/--secondary, que é
+       onde ele aparece nas abas inativas e nos selos. Com 45%: 5.07:1 sobre
+       branco e 4.61:1 sobre --muted — AA nos dois. */
+    --muted-foreground: 215 16% 45%;
 
     /* `accent` aqui é o realce neutro de hover de menus — não é o âmbar da
        marca. O âmbar é aplicado com as classes amber-* onde faz sentido. */
@@ -131,5 +171,29 @@
 
   .scrollbar-slim::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  /* Rolagem sem barra visível, para faixas que deslizam de lado (as abas das
+     fichas no celular). O conteúdo cortado na borda já indica que há mais. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Quem pediu menos movimento ao sistema operacional não deve receber gaveta
+   deslizando, diálogo dando zoom nem esqueleto pulsando. As transições viram
+   instantâneas — nada deixa de funcionar, só deixa de se mexer. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

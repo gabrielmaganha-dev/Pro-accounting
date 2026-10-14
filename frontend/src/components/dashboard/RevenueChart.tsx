@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { ChartTooltip } from '@/components/dashboard/ChartTooltip';
-import { AXIS_COLOR, BAR_RADIUS, GRID_COLOR, SERIES_COLORS, TICK_STYLE } from '@/lib/chart-theme';
+import { AXIS_COLOR, BAR_RADIUS, GRID_COLOR, seriesColors, TICK_STYLE } from '@/lib/chart-theme';
 import type { MonthlyRevenuePoint } from '@/types/dashboard';
 import { formatCurrency, formatCurrencyCompact, toChartNumber } from '@/utils/format';
 
@@ -19,6 +19,9 @@ interface RevenueChartProps {
  * medido, e uma legenda de um item só é ruído.
  */
 export function RevenueChart({ data }: RevenueChartProps) {
+  // Resolvido por renderização: as cores vêm da identidade visual configurada.
+  const colors = seriesColors();
+
   const chartData = data.map((point) => ({
     label: point.label,
     value: toChartNumber(point.total),
@@ -70,7 +73,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
                   {
                     label: 'Recebido',
                     value: formatCurrency(point.value),
-                    color: SERIES_COLORS.revenue,
+                    color: colors.revenue,
                   },
                   {
                     label: 'Pagamentos',
@@ -84,7 +87,7 @@ export function RevenueChart({ data }: RevenueChartProps) {
 
         <Bar
           dataKey="value"
-          fill={SERIES_COLORS.revenue}
+          fill={colors.revenue}
           radius={BAR_RADIUS}
           maxBarSize={44}
           name="Recebido"

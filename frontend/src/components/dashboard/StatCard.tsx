@@ -40,35 +40,38 @@ export function StatCard({
 }: StatCardProps) {
   return (
     <Card className="transition-shadow hover:shadow-card-hover">
-      <CardContent className="flex items-start gap-4 p-5">
+      <CardContent className="flex items-start gap-3 p-4 sm:gap-4 sm:p-5">
         <span
           aria-hidden="true"
           className={cn(
-            'flex size-11 shrink-0 items-center justify-center rounded-lg',
+            'flex size-9 shrink-0 items-center justify-center rounded-lg sm:size-11',
             TONE_STYLES[tone],
           )}
         >
-          <Icon className="size-5" />
+          <Icon className="size-[18px] sm:size-5" />
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-muted-foreground">{label}</p>
+          {/* O rótulo quebra em duas linhas em vez de ser cortado. Com cinco
+              cards lado a lado (ou dois, no celular), "Total de clientes"
+              virava "Total d…" e o número ficava sem dizer o que contava. */}
+          <p className="text-sm font-medium leading-snug text-muted-foreground">{label}</p>
 
           {isLoading ? (
-            <Skeleton className="mt-2 h-7 w-24" />
+            <Skeleton className="mt-2 h-7 w-24 max-w-full" />
           ) : (
             // tabular-nums mantém os dígitos com a mesma largura, então os
             // valores dos cards ficam alinhados entre si.
-            <p className="mt-1 truncate text-2xl font-semibold tabular-nums text-foreground">
+            <p className="mt-1 break-words text-xl font-semibold tabular-nums text-foreground sm:text-2xl">
               {value}
             </p>
           )}
 
           {hint &&
             (isLoading ? (
-              <Skeleton className="mt-2 h-3 w-20" />
+              <Skeleton className="mt-2 h-3 w-20 max-w-full" />
             ) : (
-              <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">{hint}</p>
             ))}
         </div>
       </CardContent>

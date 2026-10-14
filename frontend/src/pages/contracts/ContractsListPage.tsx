@@ -1,21 +1,13 @@
-import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  CalendarClock,
-  Eye,
-  FileText,
-  FilePlus2,
-  Pencil,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  X,
-} from 'lucide-react';
+import { CalendarClock, Eye, FilePlus2, Pencil, Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
+import { SortSelect, type SortOption } from '@/components/common/SortSelect';
+import { TableSkeleton } from '@/components/common/TableSkeleton';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -48,6 +39,22 @@ const PAGE_SIZE = 20;
 
 /** Janela do filtro "vencendo em breve". Igual à usada nos alertas do painel. */
 const EXPIRING_WINDOW_DAYS = 30;
+
+type ContractSort = NonNullable<ContractListFilters['sort']>;
+
+/**
+ * As colunas ordenáveis do cabeçalho, mais "Cadastro": é a ordenação padrão da
+ * tela e não tem coluna — sem esta opção, quem ordenasse por outra coisa não
+ * teria como voltar.
+ */
+const SORT_OPTIONS: SortOption<ContractSort>[] = [
+  { column: 'createdAt', label: 'Cadastro' },
+  { column: 'number', label: 'Número' },
+  { column: 'client', label: 'Cliente' },
+  { column: 'monthlyValue', label: 'Valor mensal' },
+  { column: 'startDate', label: 'Início' },
+  { column: 'endDate', label: 'Término' },
+];
 
 export function ContractsListPage() {
   const navigate = useNavigate();
@@ -112,7 +119,7 @@ export function ContractsListPage() {
     [page, search, status, expiring, sort, order],
   );
 
-  const { data, isPending, isFetching, isError, error } = useContracts(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = useContracts(filters);
 
   const hasActiveFilters = Boolean(search || status || expiring);
 
@@ -131,7 +138,9 @@ export function ContractsListPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {data
               ? `${data.total} ${data.total === 1 ? 'contrato cadastrado' : 'contratos cadastrados'}`
-              : 'Carregando…'}
+              : isError
+                ? 'Lista indisponível no momento'
+                : 'Carregando…'}
           </p>
         </div>
 
@@ -165,8 +174,10 @@ export function ContractsListPage() {
               value={status || ALL}
               onValueChange={(value) => updateParams({ status: value, page: '1' })}
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filtrar por situação">
-                <SlidersHorizontal className="size-4 text-muted-foreground" />
+              <SelectTrigger
+                className="min-w-[160px] flex-1 sm:w-[190px] sm:flex-none"
+                aria-label="Filtrar por situação"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -184,6 +195,7 @@ export function ContractsListPage() {
             <Button
               variant={expiring ? 'default' : 'outline'}
               size="sm"
+              aria-pressed={Boolean(expiring)}
               onClick={() =>
                 updateParams({
                   expiringInDays: expiring ? '' : String(EXPIRING_WINDOW_DAYS),
@@ -194,6 +206,15 @@ export function ContractsListPage() {
               <CalendarClock />
               Vencendo em {EXPIRING_WINDOW_DAYS} dias
             </Button>
+
+            <SortSelect
+              options={SORT_OPTIONS}
+              sort={sort}
+              order={order}
+              onChange={(column, nextOrder) =>
+                updateParams({ sort: column, order: nextOrder, page: '1' })
+              }
+            />
 
             {hasActiveFilters && (
               <Button
@@ -211,11 +232,16 @@ export function ContractsListPage() {
 
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
-        {isError ? (
-          <EmptyState
+        {/* `&& !data`: um refetch em segundo plano que falha (rede oscilou,
+            limite de requisições) deixa a consulta em erro COM os dados
+            anteriores em cache. Trocar a lista inteira por uma tela de erro
+            nesse caso esconderia conteúdo válido. */}
+        {isError && !data ? (
+          <ErrorState
             title="Não foi possível carregar os contratos"
             description={error instanceof Error ? error.message : undefined}
-            icon={FileText}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
           <TableSkeleton />
@@ -249,58 +275,55 @@ export function ContractsListPage() {
           />
         ) : (
           <>
+            {/* Colunas por largura de tela — mesma regra das outras listagens.
+                Abaixo de 768px a linha vira duas células: identificação à
+                esquerda (número, cliente, serviço) e valor + situação à
+                direita. Nada some para fora da tela. */}
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>
-                    <SortButton
-                      label="Número"
-                      column="number"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Cliente"
-                      column="client"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden lg:table-cell">Serviço</TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Valor mensal"
-                      column="monthlyValue"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
-                      label="Início"
-                      column="startDate"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
-                      label="Término"
-                      column="endDate"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">Vencimento</TableHead>
-                  <TableHead>Situação</TableHead>
-                  <TableHead className="w-[100px] text-right">Ações</TableHead>
+                  <SortableHead
+                    label="Número"
+                    column="number"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                  />
+                  <SortableHead
+                    label="Cliente"
+                    column="client"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden md:table-cell"
+                  />
+                  <SortableHead
+                    label="Valor mensal"
+                    column="monthlyValue"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="text-right max-md:pr-4 md:text-left"
+                  />
+                  <SortableHead
+                    label="Início"
+                    column="startDate"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden wide:table-cell"
+                  />
+                  <SortableHead
+                    label="Término"
+                    column="endDate"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden xl:table-cell"
+                  />
+                  <TableHead className="hidden 2xl:table-cell">Vencimento</TableHead>
+                  <TableHead className="hidden md:table-cell">Situação</TableHead>
+                  <TableHead className="hidden w-[100px] text-right xl:table-cell">Ações</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -311,31 +334,46 @@ export function ContractsListPage() {
                     className="cursor-pointer"
                     onClick={() => navigate(`/contratos/${contract.id}`)}
                   >
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {contract.number}
-                    </TableCell>
-
                     <TableCell>
-                      <p className="max-w-[200px] truncate text-foreground">
-                        {contract.client.name}
-                      </p>
-                      {/* Abaixo de 1024px o serviço não tem coluna própria,
-                          então aparece aqui como subtítulo em vez de sumir. */}
-                      <p className="max-w-[200px] truncate text-xs text-muted-foreground lg:hidden">
+                      {/* Link de verdade: torna a ficha alcançável por teclado
+                          e leitor de tela. stopPropagation evita navegar duas
+                          vezes (link + clique da linha). */}
+                      <Link
+                        to={`/contratos/${contract.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="whitespace-nowrap font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {contract.number}
+                      </Link>
+                      {/* Abaixo de 768px cliente e serviço não têm coluna
+                          própria: aparecem aqui em vez de sumir. */}
+                      <p className="text-sm text-foreground md:hidden">{contract.client.name}</p>
+                      <p className="line-clamp-1 text-xs text-muted-foreground md:hidden">
                         {contract.serviceType}
                       </p>
                     </TableCell>
 
-                    <TableCell className="hidden max-w-[200px] truncate lg:table-cell">
-                      {contract.serviceType}
+                    <TableCell className="hidden md:table-cell">
+                      <p className="max-w-[200px] truncate text-foreground">
+                        {contract.client.name}
+                      </p>
+                      <p className="max-w-[200px] truncate text-xs text-muted-foreground">
+                        {contract.serviceType}
+                      </p>
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="whitespace-nowrap text-right tabular-nums max-md:pr-4 md:text-left">
                       {formatCurrency(contract.monthlyValue)}
                       <span className="text-xs text-muted-foreground"> /mês</span>
+                      <p className="text-xs text-muted-foreground 2xl:hidden">
+                        vence dia {contract.dueDay}
+                      </p>
+                      <div className="mt-1 md:hidden">
+                        <ContractStatusBadge status={contract.status} />
+                      </div>
                     </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
+                    <TableCell className="hidden whitespace-nowrap wide:table-cell">
                       {formatDate(contract.startDate)}
                     </TableCell>
 
@@ -347,15 +385,15 @@ export function ContractsListPage() {
                       )}
                     </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap tabular-nums md:table-cell">
+                    <TableCell className="hidden whitespace-nowrap tabular-nums 2xl:table-cell">
                       Dia {contract.dueDay}
                     </TableCell>
 
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <ContractStatusBadge status={contract.status} />
                     </TableCell>
 
-                    <TableCell className="text-right">
+                    <TableCell className="hidden text-right xl:table-cell">
                       {/* stopPropagation: sem ele, clicar em Editar abriria a
                           ficha (clique da linha) e logo em seguida a edição. */}
                       <div
@@ -392,52 +430,6 @@ export function ContractsListPage() {
           </>
         )}
       </Card>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<ContractListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<ContractListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-56" />
-          </div>
-          <Skeleton className="hidden h-4 w-24 sm:block" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-      ))}
     </div>
   );
 }

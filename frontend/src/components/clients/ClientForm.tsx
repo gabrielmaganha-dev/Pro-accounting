@@ -517,6 +517,10 @@ export function ClientForm({ client, onSubmit, onCancel, isSubmitting }: ClientF
                   <FormControl>
                     <Textarea
                       rows={4}
+                      // O título do card ("Observações") é o rótulo visual, mas
+                      // não está ligado ao campo: sem isto o leitor de tela
+                      // anuncia só "campo de edição".
+                      aria-label="Observações sobre o cliente"
                       placeholder="Anotações internas sobre o cliente."
                       disabled={isFieldDisabled('notes')}
                       {...field}

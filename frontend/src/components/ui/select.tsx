@@ -70,7 +70,10 @@ const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        'relative z-50 max-h-80 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md',
+        'relative z-50 max-h-80 min-w-[8rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md',
+        // Sem item selecionado o Radix foca o próprio painel; o anel global de
+        // foco é box-shadow e desenhava uma moldura em volta da lista inteira.
+        'outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
         'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         position === 'popper' && 'data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1',
         className,
@@ -113,8 +116,8 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-pointer select-none items-center rounded-sm py-2 pl-8 pr-2 text-sm outline-none',
-      'focus:bg-secondary focus:text-secondary-foreground',
+      'relative flex w-full cursor-pointer select-none items-center rounded-sm py-2 pl-8 pr-2 text-sm outline-none touch:min-h-10',
+      'focus:bg-secondary focus:text-secondary-foreground focus-visible:ring-0 focus-visible:ring-offset-0',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className,
     )}

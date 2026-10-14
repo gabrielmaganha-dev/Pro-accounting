@@ -1,5 +1,6 @@
 import { ClientStatus, ContractStatus, InvoiceStatus, PaymentMethod } from '@prisma/client';
 
+import { env } from '../config/env.js';
 import { prisma, disconnectDatabase } from '../config/prisma.js';
 import { addDays, addMonths, isoDateToUtc, startOfMonth, today } from '../utils/date.js';
 
@@ -338,6 +339,29 @@ async function wipeDemoData(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  /**
+   * Trava de produção.
+   *
+   * Este script APAGA todos os pagamentos, faturas, contratos e clientes antes
+   * de recriar os de demonstração. O aviso "nunca rode em produção" no topo do
+   * arquivo não impede ninguém — e o arquivo compilado vai dentro da imagem de
+   * produção, a um comando de distância. A recusa precisa estar no código.
+   */
+  if (env.isProduction) {
+    console.error(
+      [
+        '',
+        '  Recusado: os dados de demonstração não rodam em produção.',
+        '',
+        '   Este script apaga TODOS os clientes, contratos, faturas e pagamentos',
+        '   da base antes de criar os registros de exemplo.',
+        '',
+      ].join('\n'),
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const admin = await prisma.user.findFirst({
     where: { role: 'ADMIN' },
     select: { id: true, name: true },

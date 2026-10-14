@@ -1,0 +1,255 @@
+# =============================================================================
+# Pro Accounting — PRODUÇÃO
+# =============================================================================
+#
+#     navegador
+#         │  HTTPS (Caddy, perfil "https")  ou  o proxy que o servidor já tiver
+#         ▼
+#     frontend   nginx: entrega a interface e repassa /api
+#         │
+#         ▼
+#     backend    API Node (Fastify + Prisma)
+#         │
+#         ▼
+#     postgres   PostgreSQL 18, dados em volume nomeado
+#
+# Só o `frontend` (ou o Caddy) publica porta no servidor. A API e o banco NÃO
+# são alcançáveis de fora: conversam apenas pela rede interna do compose.
+#
+# Uso — os valores vêm de `.env.production` (copie de `.env.production.example`):
+#
+#   docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+#
+# Na raiz do projeto há atalhos: `npm run prod:up`, `prod:logs`, `prod:down`…
+# O passo a passo completo está no README, seção 16.
+# =============================================================================
+
+name: pro-accounting
+
+# Log de cada container limitado a 5 arquivos de 10 MB. Sem teto, o driver
+# padrão do Docker guarda tudo para sempre — e é assim que o disco do servidor
+# enche meses depois, derrubando o banco junto.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+# Variáveis de conexão que o cliente do PostgreSQL (pg_dump, psql) lê sozinho.
+x-pg-client-env: &pg-client-env
+  PGHOST: postgres
+  PGPORT: '5432'
+  PGDATABASE: ${POSTGRES_DB:-pro_accounting}
+  PGUSER: ${POSTGRES_USER:-pro_accounting}
+  PGPASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em .env.production}
+
+services:
+  # ---------------------------------------------------------------------------
+  # Banco de dados
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pro_accounting}
+      POSTGRES_USER: ${POSTGRES_USER:-pro_accounting}
+      # Sem valor padrão: o compose se recusa a subir sem a senha definida.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em .env.production}
+      # Senhas gravadas com SCRAM-SHA-256 desde a criação do banco.
+      POSTGRES_INITDB_ARGS: '--auth-host=scram-sha-256 --encoding=UTF8'
+      # Explícito, embora seja o padrão da imagem 18: garante que os dados
+      # fiquem DENTRO do volume montado abaixo.
+      PGDATA: /var/lib/postgresql/18/docker
+    # Mesmo fuso do ambiente de desenvolvimento. O SQL do sistema recebe as
+    # datas como texto e não depende disso — mas `now()` e o horário do log do
+    # banco saem no fuso do escritório, e não em UTC.
+    command:
+      - postgres
+      - -c
+      - timezone=${DB_TIMEZONE:-America/Sao_Paulo}
+      - -c
+      - log_timezone=${DB_TIMEZONE:-America/Sao_Paulo}
+    volumes:
+      # ATENÇÃO ao caminho: a partir do PostgreSQL 18 a imagem guarda os dados
+      # em /var/lib/postgresql/<versão>/docker, e o ponto de montagem correto é
+      # /var/lib/postgresql (sem "/data"). Montado no caminho antigo, o
+      # container se recusa a iniciar.
+      - pgdata:/var/lib/postgresql
+    # Sem `ports`: o banco não é publicado no servidor. Para acessá-lo:
+    #   docker compose ... exec postgres psql -U pro_accounting
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-pro_accounting} -d ${POSTGRES_DB:-pro_accounting}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # /dev/shm padrão do Docker tem 64 MB; consultas paralelas do PostgreSQL
+    # usam memória compartilhada e falham com "could not resize shared memory".
+    shm_size: 256mb
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Migrations — roda uma vez a cada `up` e termina
+  # ---------------------------------------------------------------------------
+  # Serviço separado, e não um comando embutido na subida da API, por dois
+  # motivos: a migration que falha aparece como um container que saiu com erro
+  # (e a API nem sobe sobre um banco pela metade), e duas réplicas da API nunca
+  # tentariam migrar ao mesmo tempo.
+  #
+  # `migrate deploy` só aplica o que está pendente e nunca apaga dados: é o
+  # comando de produção. `migrate dev` e `migrate reset` não existem aqui.
+  migrate:
+    build:
+      context: ./backend
+    image: pro-accounting-api:${APP_VERSION:-latest}
+    restart: 'no'
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pro_accounting}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em .env.production}@postgres:5432/${POSTGRES_DB:-pro_accounting}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # API
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+    image: pro-accounting-api:${APP_VERSION:-latest}
+    restart: unless-stopped
+    # Processo 1 mínimo do Docker: repassa sinais e recolhe processos órfãos.
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: '3333'
+      HOST: 0.0.0.0
+      # A senha entra numa URL: use apenas letras e números (ver o exemplo).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pro_accounting}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em .env.production}@postgres:5432/${POSTGRES_DB:-pro_accounting}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET em .env.production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-12}
+      # Endereço público do sistema, exatamente como aparece no navegador.
+      CORS_ORIGIN: '${APP_URL:?defina APP_URL em .env.production - o endereço público do sistema}'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # A API só é alcançada pelo nginx ou pelo Caddy, que definem o IP real.
+      TRUST_PROXY: 'true'
+      # Usadas apenas pelo seed do administrador (README, seção 16.5).
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # A API só sobe depois de as migrations terminarem SEM erro.
+      migrate:
+        condition: service_completed_successfully
+    # Sem `ports`: a API não é publicada. Quem fala com ela é o frontend.
+    # O processo não precisa de nenhum privilégio do kernel, nem de ganhar um.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Interface (nginx) — a porta de entrada
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Caminho relativo: interface e API saem pelo mesmo endereço.
+        VITE_API_URL: /api
+    image: pro-accounting-web:${APP_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: backend:3333
+      # De quem aceitar o cabeçalho X-Forwarded-For. Preencha com o endereço
+      # do SEU proxy se houver um na frente deste nginx; o padrão não confia
+      # em ninguém (ver frontend/nginx/default.conf.template).
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1/32}
+    ports:
+      # 80 no servidor → 8080 no container (o nginx roda sem root).
+      # Com o perfil "https", use APP_BIND=127.0.0.1:8080: quem atende a
+      # internet é o Caddy, e esta porta fica só para diagnóstico local.
+      - '${APP_BIND:-80}:8080'
+    depends_on:
+      backend:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # Backup automático do banco
+  # ---------------------------------------------------------------------------
+  # Um pg_dump ao subir e outro a cada BACKUP_INTERVAL_HOURS, gravados em
+  # ./backups no servidor, com os mais antigos que BACKUP_RETENTION_DAYS
+  # apagados. Mesma imagem do banco, para o pg_dump ter a versão do servidor.
+  #
+  # ./backups fica NO MESMO DISCO do banco: protege contra erro humano e
+  # migration ruim, não contra a perda do servidor. Copie a pasta para fora
+  # (outro servidor, armazenamento em nuvem) — README, seção 16.7.
+  backup:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    entrypoint: ['sh', '/scripts/scheduler.sh']
+    environment:
+      <<: *pg-client-env
+      BACKUP_DIR: /backups
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      TZ: ${DB_TIMEZONE:-America/Sao_Paulo}
+    volumes:
+      - ./deploy/backup:/scripts:ro
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # HTTPS automático (opcional) — ative com `--profile https`
+  # ---------------------------------------------------------------------------
+  # O Caddy obtém e renova sozinho o certificado Let's Encrypt de DOMAIN.
+  # Pré-requisitos: o domínio já apontando para este servidor e as portas 80 e
+  # 443 liberadas no firewall. Se o servidor JÁ tem um proxy com HTTPS
+  # (nginx, Traefik, Cloudflare…), não use este perfil: aponte o proxy
+  # existente para a porta do `frontend`.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ['https']
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificados e chaves. Perder este volume obriga a emitir tudo de novo
+      # — e o Let's Encrypt limita emissões por semana.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - frontend
+    logging: *default-logging
+
+volumes:
+  # Os DADOS do sistema. `docker compose down` não apaga este volume;
+  # `docker compose down -v` apaga — nunca use `-v` em produção.
+  pgdata:
+    name: pro-accounting-prod-pgdata
+  caddy-data:
+    name: pro-accounting-prod-caddy-data
+  caddy-config:
+    name: pro-accounting-prod-caddy-config

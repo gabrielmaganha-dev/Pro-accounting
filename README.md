@@ -8,7 +8,7 @@ Fluxo central do sistema:
 Cliente  →  Contrato  →  Faturas  →  Pagamento
 ```
 
-> **Estado atual: módulo de Faturas no ar — o fluxo central está fechado.**
+> **Estado atual: sistema completo, do cadastro ao controle de acesso.**
 >
 > `Cliente → Contrato → Fatura → Pagamento` funciona de ponta a ponta:
 >
@@ -22,11 +22,29 @@ Cliente  →  Contrato  →  Faturas  →  Pagamento
 > - **Pagamentos** — registro com confirmação em duas etapas, proteção contra duplicata,
 >   pagamento parcial, estorno e o histórico de caixa com filtros e total do período.
 > - **Financeiro** — resumo em seis cards, seis períodos, gráficos de receita, formas de
->   recebimento e situação das faturas, tabela do período e exportação em CSV.
+>   recebimento e situação das faturas, tabela do período e exportação em CSV, Excel e PDF.
 >   **Restrito a administradores.**
+> - **Notificações** — sino no cabeçalho com alertas persistidos de fatura atrasada,
+>   vencimento próximo e contrato a vencer, com estado de leitura por usuário.
+> - **Usuários e permissões** — cadastro, busca, filtros, troca de perfil, inativação,
+>   exclusão protegida, reset de acesso com senha provisória de uso único e troca da
+>   própria senha. **Restrito a administradores.**
+> - **Relatórios** — 15 relatórios de clientes, contratos, faturas e financeiro, com
+>   filtros de período, cliente e situação, e exportação em **CSV, Excel e PDF**.
+>   Os financeiros são restritos a administradores.
+> - **Configurações** — dados da empresa, logotipo e cores da marca aplicadas ao sistema
+>   inteiro, perfil do usuário com troca de senha, e preferências gerais
+>   (antecedência de vencimento, moeda, fuso horário, formato de data).
+> - **Auditoria** — trilha append-only de quem fez o quê, quando e de onde: login,
+>   tentativa recusada, logout, criação, alteração, inativação, cancelamento,
+>   pagamento, estorno, mudança de perfil, reset de acesso e exportação de dados.
+>   **Restrita a administradores.**
 > - **Painel** — indicadores, gráficos, alertas e atividade recente, todos com dados reais.
 >
-> As telas de Usuários e Configurações ainda são marcadores; entram na etapa seguinte.
+> Nenhuma tela do menu é marcador: todas estão construídas.
+>
+> **Pronto para produção:** imagens Docker da API e da interface, compose com PostgreSQL,
+> HTTPS automático, backup e restauração — ver a [seção 16](#16-produção).
 
 ---
 
@@ -47,6 +65,7 @@ Cliente  →  Contrato  →  Faturas  →  Pagamento
 13. [Solução de problemas](#13-solução-de-problemas)
 14. [Trocar o logotipo](#14-trocar-o-logotipo)
 15. [Próximas etapas](#15-próximas-etapas)
+16. [Produção](#16-produção) — deploy, HTTPS, backup, restauração e checklist
 
 ---
 
@@ -59,6 +78,7 @@ Cliente  →  Contrato  →  Faturas  →  Pagamento
 | Banco de dados | PostgreSQL 16+ (verificado com 18.6) + Prisma ORM                           |
 | Autenticação   | JWT (`@fastify/jwt`) + hash de senha com bcrypt                             |
 | Infra local    | Docker Compose (apenas o PostgreSQL)                                        |
+| Produção       | Docker Compose: nginx + API + PostgreSQL, HTTPS com Caddy, backup por `pg_dump` |
 
 **Duas escolhas que merecem explicação:**
 
@@ -71,11 +91,20 @@ Cliente  →  Contrato  →  Faturas  →  Pagamento
 
 ```text
 pro-accounting/
-├── docker-compose.yml          # PostgreSQL local
-├── .env.example                # credenciais do banco (usado pelo compose)
-├── package.json                # atalhos que chamam frontend e backend
+├── docker-compose.yml             # PostgreSQL local (desenvolvimento)
+├── docker-compose.production.yml  # produção: banco, migrations, API, nginx, backup, HTTPS
+├── .env.example                   # credenciais do banco de desenvolvimento
+├── .env.production.example        # todas as variáveis de produção, comentadas
+├── package.json                   # atalhos que chamam frontend e backend
+│
+├── deploy/
+│   ├── backup/                 # backup.sh, restore.sh e o agendador
+│   └── caddy/Caddyfile         # HTTPS automático (perfil "https")
+├── scripts/
+│   └── smoke-test.sh           # confere uma instalação de fora (seção 16.11)
 │
 ├── backend/
+│   ├── Dockerfile              # imagem de produção da API
 │   ├── prisma/
 │   │   ├── schema.prisma       # modelo de dados
 │   │   └── migrations/         # histórico versionado do banco
@@ -84,6 +113,9 @@ pro-accounting/
 │       ├── config/             # env validado + cliente Prisma
 │       ├── controllers/        # entrada/saída HTTP
 │       ├── services/           # regra de negócio
+│       ├── reports/            # núcleo de relatórios (ver seção 9)
+│       │   ├── definitions/    # um arquivo por grupo de relatórios
+│       │   └── formatters/     # CSV, XLSX e PDF — sem dependências
 │       ├── routes/             # definição das rotas
 │       ├── middlewares/        # autenticação, autorização, erros
 │       ├── validators/         # schemas Zod de entrada
@@ -96,7 +128,10 @@ pro-accounting/
 │       └── server.ts           # sobe o servidor
 │
 └── frontend/
+    ├── Dockerfile              # imagem de produção: build + nginx
+    ├── nginx/                  # configuração do nginx e cabeçalhos de segurança
     ├── .env.example
+    ├── .env.production         # VITE_API_URL=/api (versionado: não tem segredo)
     ├── tailwind.config.js      # paleta da marca
     └── src/
         ├── assets/             # logo.svg, logo-mark.svg, LOGO.md
@@ -109,20 +144,29 @@ pro-accounting/
         │   ├── contracts/      # formulário, renovação, selo
         │   ├── invoices/       # formulário, registro de pagamento, selo
         │   ├── finance/        # gráficos do módulo financeiro
-        │   └── common/         # paginação, estado vazio, loader
+        │   ├── notifications/  # sino e painel de alertas
+        │   ├── users/          # formulário, reset, troca de senha, selos
+        │   ├── reports/        # catálogo, filtros, tabela e exportação
+        │   ├── settings/       # empresa, identidade visual, perfil, preferências
+        │   ├── audit/          # selo de ação e detalhe do evento
+        │   └── common/         # paginação, ordenação, estados vazio e de erro, loader
         ├── contexts/           # estado de autenticação
         ├── hooks/
         ├── layouts/            # AppLayout, AuthLayout
-        ├── lib/                # utilitários, query client, env
+        ├── lib/                # utilitários, query client, env, tema em execução
         ├── pages/
         │   ├── clients/        # lista, ficha e formulário
         │   ├── contracts/      # lista, ficha e formulário
         │   ├── invoices/       # lista, ficha e formulário
-        │   └── payments/       # histórico de caixa (só leitura)
+        │   ├── payments/       # histórico de caixa (só leitura)
+        │   ├── users/          # gerenciamento de acesso (só ADMIN)
+        │   ├── reports/        # relatórios e exportação
+        │   ├── settings/       # configurações do sistema e do perfil
+        │   └── audit/          # trilha de auditoria (só ADMIN)
         ├── routes/             # mapa de rotas e guards
         ├── services/           # cliente HTTP e chamadas à API
         ├── types/
-        └── utils/              # formatação pt-BR, máscaras
+        └── utils/              # formatação pt-BR, máscaras, política de senha
 ```
 
 ---
@@ -387,7 +431,9 @@ Abra <http://localhost:5173> no navegador.
 | `JWT_SECRET`         | *(aleatório, 32+ caracteres)* | Assina os tokens. **Nunca versionar**                 |
 | `JWT_EXPIRES_IN`     | `1d`                          | Validade do token (`15m`, `2h`, `1d`, `7d`)           |
 | `BCRYPT_SALT_ROUNDS` | `12`                          | Custo do hash de senha                                |
-| `CORS_ORIGIN`        | `http://localhost:5173`       | Origens autorizadas, separadas por vírgula            |
+| `CORS_ORIGIN`        | `http://localhost:5173`       | Origens autorizadas, separadas por vírgula. **Obrigatória em produção** |
+| `LOG_LEVEL`          | `info`                        | Nível mínimo do log (`fatal` … `trace`)               |
+| `TRUST_PROXY`        | `true`                        | Confiar em `X-Forwarded-*`. `false` se a API for exposta sem proxy |
 | `ADMIN_NAME`         | `Administrador`               | Usado só pelo seed                                    |
 | `ADMIN_EMAIL`        | `admin@...`                   | Usado só pelo seed                                    |
 | `ADMIN_PASSWORD`     | *(sua senha)*                 | Usado só pelo seed. Gravado com hash                  |
@@ -399,6 +445,16 @@ Abra <http://localhost:5173> no navegador.
 | `VITE_API_URL` | `http://localhost:3333/api`  | Endereço base da API      |
 
 > **Atenção:** no Vite, toda variável `VITE_*` é embutida no JavaScript enviado ao navegador e fica visível para qualquer usuário. Nunca coloque segredo em variável `VITE_`.
+
+O build de produção lê `frontend/.env.production`, que define `VITE_API_URL=/api` (caminho relativo:
+interface e API saem pelo mesmo endereço). Sem a variável, o build de produção também assume `/api`
+— nunca `localhost`.
+
+### Produção — `.env.production` (raiz)
+
+As variáveis do compose de produção estão na [seção 16.3](#163-configuração). Em produção a API
+valida a configuração com mais rigor: recusa o `JWT_SECRET` e a senha de banco dos arquivos de
+exemplo, exige `CORS_ORIGIN` e rejeita origem com caminho ou curinga.
 
 ---
 
@@ -603,6 +659,159 @@ a API recusa com **403** mesmo que ele digite o endereço.
    está disponível. Estão anunciados porque a estrutura já os prevê.
 8. **Conferência cruzada** — o total recebido no período deve bater com o mesmo período em
    *Pagamentos*, e *Atrasado* com o card do painel. Os três leem a mesma fonte.
+
+### 8.8 Testando as notificações
+
+1. **O sino** — no canto superior direito, com o número de não lidas em vermelho. Abra:
+   fatura atrasada em vermelho, vencimento próximo em âmbar, contrato a vencer em azul.
+   Cada linha traz o cliente, o valor e quanto tempo falta ou faz.
+2. **Clique numa notificação** — ela é marcada como lida e leva direto à fatura ou ao
+   contrato. O ícone de visto ao lado marca como lida sem sair da tela.
+3. **Marcar todas** — o botão no topo do painel. O selo zera; a caixa do outro usuário
+   **não** é afetada, porque a leitura é pessoal.
+4. **Resolução automática** — pegue uma fatura atrasada, registre o pagamento e volte ao
+   sino: o alerta some. Estorne o pagamento e ele volta. Nenhum dos dois exige recarregar
+   a página.
+5. **Sem duplicatas** — deixe a tela aberta alguns minutos. O sino consulta a API
+   periodicamente e a varredura roda de novo, mas o número não cresce.
+6. **Mensagem que envelhece bem** — uma fatura que hoje "vence amanhã" passa a "vence
+   hoje" no dia seguinte, no mesmo alerta. O texto é reescrito a cada varredura; o estado
+   de leitura, não.
+7. **Painel** — os alertas do painel continuam onde estavam, agrupados por urgência. O
+   sino e o painel usam as mesmas janelas, então nunca discordam.
+
+### 8.9 Testando usuários e permissões
+
+1. **Cadastre um funcionário** em *Usuários → Novo usuário*, com uma senha que você
+   consiga digitar de novo. Repare no selo **Senha provisória** ao lado do nome.
+2. **Entre como ele** numa janela anônima. O sistema abre um diálogo **sem botão de
+   cancelar** exigindo uma senha nova — não dá para usar o sistema sem trocar.
+3. **Confirme o RBAC pela interface**: no menu lateral dele não existem *Financeiro* nem
+   *Usuários*. Digite `http://localhost:5173/usuarios` na barra de endereço: o sistema
+   devolve ao painel.
+4. **Confirme o RBAC de verdade**, que é o que importa. Com o token dele, no terminal:
+
+   ```bash
+   curl -i -X DELETE http://localhost:3333/api/users/<id> ^
+     -H "Authorization: Bearer <token-do-funcionario>"
+   ```
+
+   A resposta é **403**, e o usuário continua existindo. A interface não participou dessa
+   decisão.
+5. **Reset de acesso** — de volta como administrador, *Resetar acesso* no menu da linha.
+   A senha provisória aparece uma vez; anote. A janela do funcionário, se ainda estiver
+   aberta, cai na tela de login na próxima ação — o token dele foi invalidado.
+6. **Trave a própria conta (ou tente)** — no seu próprio usuário, as opções de resetar,
+   rebaixar, inativar e excluir não aparecem. Pela API, as quatro respondem **403**.
+7. **Exclusão protegida** — tente excluir um usuário que já cadastrou um cliente ou
+   registrou um pagamento: **409**, com a sugestão de inativar. Inative e confirme que o
+   nome dele continua no histórico da fatura e no *Pagamentos*.
+8. **Troca da própria senha** — menu do seu nome → *Alterar senha*. Você continua logado
+   (a aplicação troca o token); qualquer outra sessão sua cai.
+
+### 8.10 Testando os relatórios
+
+1. **Abra *Relatórios*** — quinze cartões agrupados em Clientes, Contratos, Faturas e
+   Financeiro. A descrição de cada um diz o que entra e o que fica de fora.
+2. **Confira um número contra o sistema** — abra *Faturas atrasadas* e compare o total com
+   a tela de Faturas filtrada por "Atrasada". São o mesmo número, porque a regra de atraso
+   vem do mesmo lugar. Some *Pendentes* com *Atrasadas*: nenhuma fatura aparece nas duas.
+3. **Filtre** — escolha data inicial e final, um cliente e uma situação. O texto acima da
+   tabela é reescrito pelo servidor com o recorte aplicado, e é o mesmo texto que vai para
+   o arquivo exportado. Repare que ele diz sobre qual data o período incide.
+4. **Exporte nos três formatos** — o menu *Exportar* mostra quantos registros o arquivo
+   terá. Baixe os três do mesmo relatório:
+   - o **CSV** abre no Excel com as colunas separadas e os acentos certos;
+   - o **Excel** traz os valores como número — selecione a coluna e veja a soma aparecer
+     na barra de status. O cabeçalho já vem com filtro e congelado;
+   - o **PDF** abre paginado, com o cabeçalho repetido em cada página.
+5. **Confira que o arquivo carrega o contexto** — abra qualquer um dos três: as primeiras
+   linhas trazem título, período, cliente, situação e a data de emissão.
+6. **Teste a permissão** — entre como funcionário: o grupo *Financeiro* não aparece no
+   catálogo. Agora peça direto pela API, com o token dele:
+
+   ```bash
+   curl -i "http://localhost:3333/api/reports/finance-overdue" ^
+     -H "Authorization: Bearer <token-do-funcionario>"
+   ```
+
+   A resposta é **403**. Os relatórios de clientes, contratos e faturas continuam
+   respondendo 200 para ele.
+7. **Link compartilhável** — o relatório e os filtros ficam na barra de endereço. Copie a
+   URL e abra em outra aba: volta no mesmo recorte.
+
+### 8.11 Testando as configurações
+
+1. **Empresa** — preencha CNPJ, telefone e CEP com máscara. Salve e recarregue: os campos
+   voltam formatados, mas o banco guardou só os dígitos. Digite um CNPJ com o dígito
+   verificador errado: a API recusa.
+2. **Cores, com pré-visualização** — em *Identidade visual*, arraste o seletor da cor
+   principal. O sistema inteiro muda de cor na hora — menu lateral, botões, selos, o item
+   ativo do menu — **sem salvar nada**. Saia da aba sem salvar: volta ao que era.
+3. **Veja a rampa** — abaixo dos seletores, os onze tons derivados. Escolha um amarelo
+   claro: aparece o aviso de contraste dizendo que o texto branco nos botões ficará
+   ilegível.
+4. **Logotipo** — envie um PNG ou SVG. Ele substitui a marca no menu lateral e na tela de
+   login. *Remover e usar o padrão* volta ao símbolo do sistema.
+5. **Antecedência de vencimento** — o teste que prova que a preferência vale. Emita uma
+   fatura com vencimento em 20 dias. Com a antecedência em 7, ela **não** aparece nos
+   alertas do painel nem no sino. Mude para 30 e recarregue: a **mesma** fatura passa a
+   aparecer. Sem reiniciar o servidor.
+6. **Fuso horário** — muda o que o servidor entende por "hoje", que é a base de todo
+   cálculo de atraso. A diferença só é observável perto da meia-noite.
+7. **Perfil** — troque o seu nome: salva sem pedir senha, e a barra do topo atualiza na
+   hora. Agora troque o e-mail: o formulário passa a exigir a senha atual, porque o e-mail
+   é a credencial de login.
+8. **Senha** — em *Meu perfil → Alterar senha*. Você continua logado (a aplicação troca o
+   token); qualquer outra sessão sua cai.
+9. **Permissão** — entre como funcionário: as abas de empresa, identidade visual e
+   preferências aparecem em modo leitura, sem botão de salvar. Pela API:
+
+   ```bash
+   curl -i -X PUT http://localhost:3333/api/settings/appearance ^
+     -H "Authorization: Bearer <token-do-funcionario>" ^
+     -H "Content-Type: application/json" ^
+     -d "{\"primaryColor\":\"#ff0000\"}"
+   ```
+
+   A resposta é **403**, e a cor não muda.
+
+### 8.12 Testando a auditoria e a segurança
+
+1. **Abra *Auditoria*** — só administradores veem o item no menu, e a API recusa a leitura
+   para os demais. O topo mostra eventos registrados, volume das últimas 24 horas, logins
+   recusados na semana e usuários ativos.
+2. **Entre e saia** — faça login, saia, e erre a senha de propósito uma vez. As três linhas
+   aparecem, com IP. A tentativa recusada vem em vermelho e guarda o e-mail tentado, mesmo
+   sem sessão.
+3. **Faça uma ação de negócio** — registre um pagamento. A linha traz valor, data e forma no
+   detalhe (clique na linha). Estorne: aparece a contrapartida.
+4. **Exporte um relatório** — vira uma linha `Exportou dados` com o formato e os filtros. É o
+   único evento em que o dado sai do sistema sem nada mudar no banco.
+5. **Confirme que a trilha não pode ser alterada** — não há botão para isso na tela, e pela
+   API:
+
+   ```bash
+   curl -i -X DELETE http://localhost:3333/api/audit-logs/<id> ^
+     -H "Authorization: Bearer <token-de-admin>"
+   ```
+
+   Responde **404**: a rota não existe, nem para administrador.
+6. **Exclua um cliente e volte à trilha** — a linha do que foi feito com ele continua lá,
+   com o nome. Exclua um usuário: as linhas dele preservam o e-mail, mesmo sem a conta.
+7. **Teste a força bruta** — erre a senha onze vezes seguidas:
+
+   ```bash
+   for /l %i in (1,1,11) do curl -s -o nul -w "%%{http_code} " ^
+     -X POST http://localhost:3333/api/auth/login ^
+     -H "Content-Type: application/json" ^
+     -d "{\"email\":\"admin@proaccounting.com.br\",\"password\":\"errada\"}"
+   ```
+
+   Dez respondem 401 e a partir da décima primeira vem **429**, com a mensagem dizendo
+   quantos segundos faltam. Todas as onze ficam na trilha.
+8. **Confirme que a senha não vaza** — nenhuma resposta da API traz `password` nem hash
+   bcrypt, e a trilha do reset de acesso não contém a senha provisória gerada.
 
 ---
 
@@ -860,6 +1069,376 @@ Excel ou PDF é escrever um segundo serializador sem tocar em consulta nem em re
 > "João" viraria "JoÃ£o". Os valores usam vírgula decimal pelo mesmo motivo. Há teto de
 > 5.000 linhas por exportação.
 
+### Notificações
+
+| Método  | Rota                          | Acesso      | Descrição                        |
+| ------- | ----------------------------- | ----------- | -------------------------------- |
+| `GET`   | `/notifications`              | Autenticado | Caixa do usuário, paginada       |
+| `PATCH` | `/notifications/:id/read`     | Autenticado | Marca uma como lida              |
+| `PATCH` | `/notifications/read-all`     | Autenticado | Marca todas as do usuário        |
+
+**Parâmetros de `GET /notifications`:** `status` (`all`, `unread`, `read`), `page`,
+`pageSize`. A resposta traz `unreadCount` — o número do selo do sino, sempre o total de
+não lidas do usuário, independente do filtro aplicado.
+
+> Nenhuma rota aceita um `userId` vindo do cliente. O recorte é sempre o usuário da
+> sessão; uma notificação de outra pessoa responde **404**, não 403 — um 403 confirmaria
+> que o id existe e deixaria alguém sondar a caixa alheia.
+
+**Os três tipos gerados hoje:**
+
+| Tipo                | Condição                                      | Urgência   |
+| ------------------- | --------------------------------------------- | ---------- |
+| `INVOICE_OVERDUE`   | fatura pendente com vencimento no passado     | `CRITICAL` |
+| `INVOICE_DUE_SOON`  | fatura pendente vencendo em até 7 dias        | `WARNING` no dia, `INFO` antes |
+| `CONTRACT_EXPIRING` | contrato ativo terminando em até 30 dias      | `WARNING` na última semana, `INFO` antes |
+
+> As janelas (7 e 30 dias) são as **mesmas constantes** usadas pelos alertas do painel
+> (`CONTRACT_EXPIRY_WINDOW_DAYS` e `INVOICE_DUE_SOON_WINDOW_DAYS`, em `utils/date.ts`).
+> Duas definições divergiriam, e o sino passaria a discordar do painel na mesma tela.
+
+**Como as notificações nascem — e somem.** Não há gatilho de evento. Uma varredura
+idempotente compara "o que deveria estar avisado" com "o que está" e acerta os dois lados.
+O motivo é o mesmo que faz `OVERDUE` não ser gravado nas faturas: uma fatura fica atrasada
+pela passagem do tempo, sem ninguém agir — um gatilho nunca dispararia, porque evento
+nenhum aconteceu.
+
+Remover é tão importante quanto criar: um aviso de "fatura atrasada" de uma fatura já paga
+é ruído que ensina o usuário a ignorar o sino. A lista é uma fila de pendências, não um
+registro histórico — para histórico existe a aba de auditoria da fatura.
+
+**Deduplicação.** A chave é `<tipo>:<id da entidade>:<id do usuário>`, com índice **único**
+no banco. É o banco que garante a ausência de duplicatas, não a lógica da varredura: duas
+execuções simultâneas não conseguem criar o mesmo alerta duas vezes.
+
+**Frequência.** A varredura roda no máximo uma vez por minuto durante o polling do sino.
+Mas toda escrita que afeta alerta — pagamento, cancelamento, mudança de vencimento,
+renovação de contrato — chama `requestResweep()` e zera esse relógio, para que o aviso
+suma no instante em que a fatura é paga, e não até um minuto depois.
+
+**Estado de leitura por usuário.** Cada notificação é uma linha por destinatário. Com uma
+linha compartilhada, o funcionário que abrisse o sino marcaria o alerta como lido e o
+administrador nunca o veria. O custo é a multiplicação de linhas — dezenas, num escritório
+contábil — e o ganho é que cada linha já tem um **destinatário**, que é exatamente o que um
+canal de e-mail ou WhatsApp precisa saber.
+
+**Preparado para outros canais.** `services/notification-channels.ts` define a interface
+`NotificationChannel` e a lista de canais registrados; hoje só o `IN_APP`. Acrescentar
+e-mail, WhatsApp ou push é escrever uma implementação e incluí-la na lista — nada em quem
+decide *quais* notificações existem precisa mudar. A coluna `delivered_channels` registra
+por onde cada uma já saiu, o que impede reenvio a cada varredura; falha de canal é
+registrada e engolida, porque o e-mail não sair não pode impedir o alerta de aparecer no
+sino.
+
+### Usuários e permissões — **somente ADMIN**, exceto a troca da própria senha
+
+| Método   | Rota                        | Acesso      | Descrição                              |
+| -------- | --------------------------- | ----------- | -------------------------------------- |
+| `GET`    | `/users`                    | ADMIN       | Lista com busca, filtros e paginação   |
+| `GET`    | `/users/:id`                | ADMIN       | Detalhe                                |
+| `POST`   | `/users`                    | ADMIN       | Cadastra                               |
+| `PUT`    | `/users/:id`                | ADMIN       | Altera nome e e-mail                   |
+| `PATCH`  | `/users/:id/role`           | ADMIN       | Troca o perfil                         |
+| `PATCH`  | `/users/:id/status`         | ADMIN       | Ativa / inativa                        |
+| `POST`   | `/users/:id/reset-password` | ADMIN       | Gera senha provisória de uso único     |
+| `DELETE` | `/users/:id`                | ADMIN       | Exclui — só sem histórico vinculado    |
+| `POST`   | `/users/me/password`        | Autenticado | Troca a **própria** senha              |
+
+**Parâmetros de `GET /users`:** `search` (nome ou e-mail), `role` (`ADMIN`, `EMPLOYEE`),
+`status` (`active`, `inactive`), `sort` (`name`, `email`, `role`, `createdAt`), `order`,
+`page`, `pageSize`.
+
+> **A senha nunca sai pela API.** Toda consulta do módulo usa a constante `USER_SELECT`,
+> que não inclui o campo. Não existe um `findMany` sem `select` no módulo, então não há
+> como esquecer de excluí-lo — e é justamente o padrão do Prisma, que devolve a linha
+> inteira, que produz vazamento de hash em código escrito às pressas. Quando o hash é
+> necessário (login e troca de senha), a consulta o pede explicitamente, isolada, e o
+> descarta em seguida.
+
+**A interface não é a barreira.** O menu esconde o item para funcionários e o guard de
+rota redireciona, mas as duas coisas são conveniência visual. Quem chamar
+`DELETE /api/users/<id>` com o token de um funcionário — por `curl`, Postman ou pelo
+console do navegador — recebe **403** no `preHandler`, antes de qualquer consulta ao banco.
+
+**Portas dos fundos fechadas.** `PUT /users/:id` aceita apenas nome e e-mail: `role`,
+`active` e `password` no corpo são descartados pelo schema. Sem isso, a edição de cadastro
+seria o caminho para se promover a administrador sem passar pela rota que verifica as
+travas — o mesmo tipo de brecha já fechada em clientes e faturas.
+
+**O administrador não se derruba.** Nenhum administrador pode rebaixar, desativar, excluir
+ou resetar a **própria** conta. O motivo é que este é o único módulo em que o erro é
+irreversível pela interface: quem se rebaixa a funcionário perde, no mesmo clique, a
+permissão de se promover de volta, e o conserto passa a ser um `UPDATE` manual no banco.
+
+Além disso, toda troca de perfil, inativação e exclusão roda dentro de uma transação que
+**conta os administradores ativos depois da escrita** e a desfaz se o total chegar a zero.
+A verificação é posterior de propósito: uma checagem prévia do tipo "o alvo é o último
+administrador?" nunca dispararia, porque quem chama já é, obrigatoriamente, um
+administrador ativo diferente do alvo — seria código morto se disfarçando de rede de
+proteção. Verificando depois, a condição coberta é a que interessa ("sobrou alguém?"), o
+que também pega dois administradores se rebaixando ao mesmo tempo.
+
+**Reset de acesso.** O sistema gera a senha, o administrador não a escolhe — senão as
+senhas provisórias seriam sempre a mesma, fraca e reaproveitada. Ela usa um alfabeto sem
+caracteres ambíguos (`0/O`, `1/l/I`, `5/S`), em blocos de quatro, porque vai ser ditada por
+telefone. Aparece **uma única vez** na resposta: não é gravada em texto puro, não vai para
+log e não há rota que a recupere — perdida, refaz-se o reset. A conta fica marcada com
+`mustChangePassword`, e a aplicação cobra a troca no acesso seguinte.
+
+**Tokens antigos deixam de valer.** Resetar o acesso, desativar a conta e trocar a senha
+gravam `passwordChangedAt`; o middleware recusa todo token assinado antes desse instante.
+Sem isso, um reset feito justamente porque a conta foi comprometida deixaria a sessão do
+invasor viva por até um dia. Por isso `POST /users/me/password` devolve um **token novo**:
+quem troca a própria senha derruba as outras sessões da conta, não a sua.
+
+> A comparação tolera um segundo. O claim `iat` do JWT tem granularidade de segundos e
+> `passwordChangedAt` é gravado em milissegundos — sem truncar, a troca de senha
+> invalidaria o token que ela mesma acabou de emitir.
+
+**Exclusão é estreita de propósito.** Um usuário que registrou pagamentos ou alterou
+cadastros não pode ser excluído: o pagamento guarda "quem registrou" como exigência de
+auditoria, e o banco reforça com `onDelete: Restrict`. A API verifica antes e responde
+**409** explicando quantos registros existem e sugerindo inativar; sem essa checagem o
+pedido morreria numa violação de chave estrangeira e o administrador leria um erro interno.
+Na prática, excluir só serve para desfazer um cadastro recém-criado por engano.
+
+### Relatórios
+
+| Método | Rota                    | Acesso      | Descrição                                |
+| ------ | ----------------------- | ----------- | ---------------------------------------- |
+| `GET`  | `/reports`              | Autenticado | Catálogo, filtrado pelo perfil           |
+| `GET`  | `/reports/:id`          | Autenticado | Dados do relatório, paginados            |
+| `GET`  | `/reports/:id/export`   | Autenticado | Arquivo em `csv`, `xlsx` ou `pdf`        |
+
+**Três rotas para quinze relatórios.** Acrescentar um relatório é escrever um objeto de
+definição em `reports/definitions/` e incluí-lo no array do grupo — nada de rota,
+controller, validador, exportador ou tela nova. A interface também não conhece nenhum
+relatório: ela lê o catálogo, desenha os filtros que a definição declara aceitar e monta a
+tabela a partir das colunas que vieram com os dados.
+
+**Parâmetros de `/reports/:id`:** `from`, `to` (datas `AAAA-MM-DD`), `clientId`, `status`,
+`page`, `pageSize`. O `export` troca a paginação por `format`.
+
+**Os quinze relatórios:**
+
+| Grupo        | Relatórios                                                     | Acesso |
+| ------------ | -------------------------------------------------------------- | ------ |
+| Clientes     | ativos, inativos, novos por período                            | todos  |
+| Contratos    | ativos, encerrados, cancelados, vencendo                       | todos  |
+| Faturas      | pagas, pendentes, atrasadas, canceladas                        | todos  |
+| Financeiro   | faturamento, recebimentos, pendências, atrasos                 | **ADMIN** |
+
+> **Por que Faturas e Financeiro não são o mesmo grupo.** Um relatório de faturas responde
+> "em que situação está esta cobrança" — rotina de atendimento. Um relatório financeiro
+> responde "quanto o escritório faturou, recebeu e tem a receber" — informação de gestão.
+> É o mesmo critério que já separava o financeiro por cliente (que o funcionário vê) do
+> consolidado do escritório (que ele não vê).
+
+**Onde a permissão é checada.** No SERVIÇO, não no `preHandler`. As três rotas são as
+mesmas para os quinze relatórios, então a rota não tem como saber se o `:id` que chegou é
+restrito — só o catálogo sabe. Pôr `authorize('ADMIN')` nelas trancaria junto os
+relatórios de clientes e contratos, que o funcionário precisa usar. O efeito para quem
+tenta burlar é o mesmo: `/api/reports/finance-overdue` com token de funcionário devolve
+**403** antes de qualquer consulta ao banco. O catálogo, além disso, nem lista os
+financeiros para ele — mas isso é conveniência de tela, não a barreira.
+
+**Cada relatório declara sobre QUAL data o período incide** (`periodField`), e o texto
+aparece na tela e no cabeçalho do arquivo. Sem isso, "de 01/09 a 30/09" é ambíguo:
+emitidas em setembro? vencendo em setembro? pagas em setembro? O número deixaria de ser
+conferível.
+
+**Todo arquivo exportado carrega o contexto** — título, período, cliente, situação e data
+de emissão — impresso antes dos dados. Um arquivo encontrado meses depois na pasta de
+downloads precisa dizer de onde veio; quem o recebe por e-mail não tem o filtro na tela
+para consultar.
+
+**Teto de 5.000 linhas por exportação.** Acima disso a resposta é 422 pedindo para
+estreitar o recorte. Sem limite, exportar "todo o período" de um escritório grande montaria
+o arquivo inteiro em memória e seguraria a conexão do banco enquanto isso.
+
+#### Os três formatos, e por que foram escritos à mão
+
+`reports/formatters/` gera CSV, XLSX e PDF **sem nenhuma dependência nova**.
+
+- **CSV** — separador `;` e BOM UTF-8, que é o que faz o arquivo abrir certo no Excel
+  brasileiro. Implementação única no projeto: o módulo financeiro passou a usar esta, em
+  vez da cópia que mantinha.
+- **XLSX** — um `.xlsx` é um ZIP com meia dúzia de XMLs. O ZIP é montado em
+  `formatters/zip.ts` (CRC-32 e `deflate` do próprio Node). O ganho sobre o CSV é
+  decisivo: os valores vão como **número**, então a coluna soma. No CSV eles são texto,
+  alinham à esquerda e somem de qualquer fórmula. A planilha já vem com filtro no
+  cabeçalho e o cabeçalho congelado.
+- **PDF** — tabela paginada, cabeçalho repetido em cada página, "página X de Y". Usa
+  Helvetica, uma das fontes padrão que todo leitor de PDF já tem, então nada precisa ser
+  embutido. O texto é convertido para **WinAnsi (CP1252)**, não para `latin1`: as duas
+  codificações coincidem nos acentos do português, mas divergem no travessão, nas aspas
+  curvas e nas reticências — e `latin1` transformaria "—" num caractere de controle.
+
+> **A decisão de não usar `exceljs` e `pdfkit`** foi tomada porque precisamos de uma fração
+> do que elas fazem: tabelas simples, sem gráfico, imagem ou fonte personalizada. O custo
+> seria alguns megabytes de dependência e uma superfície de atualização a manter por anos.
+> **Quando trocar:** se os relatórios passarem a exigir várias abas com referências entre
+> si, gráficos embutidos ou formatação condicional. Aí a conta se inverte — e a troca
+> mexe só em `formatters/`, porque nada fora dali sabe o que é um ZIP ou um `xref`.
+
+### Configurações
+
+| Método | Rota                     | Acesso      | Descrição                                |
+| ------ | ------------------------ | ----------- | ---------------------------------------- |
+| `GET`  | `/settings`              | Autenticado | Configuração e as listas aceitas         |
+| `PUT`  | `/settings/company`      | **ADMIN**   | Dados da empresa                         |
+| `PUT`  | `/settings/appearance`   | **ADMIN**   | Logotipo e cores                         |
+| `PUT`  | `/settings/general`      | **ADMIN**   | Antecedência, moeda, fuso, formato       |
+| `PUT`  | `/users/me`              | Autenticado | Nome e e-mail do **próprio** cadastro    |
+| `POST` | `/users/me/password`     | Autenticado | Troca da **própria** senha               |
+
+**Ler é de todos, escrever é do administrador.** A leitura tem de ser aberta porque a
+interface inteira depende dela para se desenhar — logotipo, cores, nome da empresa.
+Restringi-la faria o sistema aparecer sem marca para o funcionário. Nada ali é sigiloso: é
+o nome da empresa e o endereço que já sai no rodapé de qualquer documento emitido.
+
+**Uma tabela de UMA linha**, de id fixo `singleton`. Todo acesso é `upsert` nesse id, o que
+resolve dois problemas de uma vez: a linha nasce sozinha na primeira leitura (sem precisar
+de seed) e duas gravações simultâneas não conseguem criar configurações concorrentes.
+
+Por que uma tabela e não o `.env`: estes valores são alterados pelo próprio usuário, pela
+interface, sem reiniciar o servidor. O `.env` continua com o que é de infraestrutura —
+banco, segredo do JWT.
+
+#### O que realmente muda ao salvar
+
+| Campo                     | Efeito                                                                 |
+| ------------------------- | ---------------------------------------------------------------------- |
+| Antecedência de vencimento | **Imediato.** Muda quais faturas o painel e o sino consideram "vencendo" |
+| Fuso horário              | **Imediato.** Muda o que o servidor entende por "hoje" em todo cálculo de atraso |
+| Logotipo e cores          | **Imediato.** Aplicados ao sistema inteiro                             |
+| Moeda e formato de data   | **Guardados.** A exibição continua em Real e dia/mês/ano               |
+
+As duas últimas ficam guardadas de propósito — a etapa pedia a estrutura preparada, e é o
+que está feito. A própria tela avisa isso ao usuário, em vez de deixá-lo salvar e concluir
+que o campo está com defeito.
+
+**Cache em memória, não consulta por chamada.** `today()` é chamada dezenas de vezes por
+requisição, em código síncrono espalhado por todos os módulos; torná-la assíncrona para ler
+o banco contaminaria a assinatura de metade do sistema para buscar um valor que muda uma
+vez por ano. A configuração é carregada na subida (antes de a porta abrir) e o cache é
+refrescado em toda escrita. A antecedência é lida por uma **função**, não por uma constante
+importada: uma constante ficaria congelada no import e continuaria valendo 7 depois de o
+administrador mudar para 15 — bug que só apareceria no próximo reinício.
+
+Toda escrita de configuração também chama `requestResweep()`, pelo mesmo motivo que
+pagamento e estorno chamam: a varredura de notificações roda no máximo uma vez por minuto,
+e sem zerar esse relógio o sino continuaria com a janela antiga por até 60 segundos.
+
+#### Identidade visual
+
+**As cores aplicam de verdade, não só em um botão.** As classes `brand-50` … `brand-950`
+estão em dezenas de componentes e, no Tailwind, viram hexadecimais fixos no CSS compilado —
+uma cor escolhida no banco não teria como alcançá-las. A rampa passou a ser declarada como
+`hsl(var(--brand-600))`, e `src/lib/theme.ts` escreve essas variáveis no `<html>`. As
+classes são as mesmas em todos os componentes; o que muda é o valor por trás delas.
+Nenhuma tela precisou ser reescrita.
+
+Da cor escolhida o sistema **deriva a rampa inteira** de onze tons. O degrau 600 é
+exatamente a cor escolhida — matiz, saturação e luminosidade — porque `bg-brand-600` e o
+botão (que usa o token `--primary`) precisam mostrar o mesmo tom. Os outros degraus são
+interpolados entre ela e as pontas da escala, o que garante que `brand-50` sirva de fundo
+claro e `brand-900` de fundo do menu lateral qualquer que seja a cor.
+
+A tela mostra a rampa inteira e **avisa quando o contraste com texto branco fica abaixo de
+4,5:1**. O aviso não impede de salvar — a decisão é de quem opera o sistema —, mas ninguém
+deveria descobrir o problema quando um cliente reclamar que não consegue ler o botão.
+
+> **O que NÃO é configurável, de propósito:** as cores de estado (verde para pago, âmbar
+> para pendente, vermelho para atrasado). Elas passaram por validação de contraste e de
+> distinção sob daltonismo, e são semânticas — vermelho significa atraso em qualquer
+> identidade visual. Deixar o usuário pintá-las destruiria as duas coisas.
+
+**O logotipo é guardado no banco como data URL**, não em arquivo. É UM arquivo pequeno de
+uma linha única: gravá-lo ali dispensa diretório de upload, rota de arquivo estático,
+backup separado e limpeza de órfãos. Limite de 400 KB, com PNG, JPEG, WEBP ou SVG aceitos.
+O SVG é renderizado só via `<img>`, contexto em que o navegador não executa script embutido
+no arquivo. Se um dia houver upload de documento por cliente, aí sim vale um storage de
+verdade.
+
+#### Perfil e senha
+
+Trocar o **nome** não pede nada. Trocar o **e-mail** exige a senha atual, porque o e-mail é
+a credencial de login: um notebook destravado por dois minutos bastaria para alguém apontar
+a conta para um endereço próprio e, de lá, pedir um reset de acesso.
+
+A sessão **não** é invalidada ao trocar nome ou e-mail, e isso é deliberado: nenhum dos dois
+autoriza coisa alguma, e o middleware relê o usuário do banco a cada requisição. Quem
+invalida sessão são as três operações que mexem em credencial — troca de senha, reset de
+acesso e desativação de conta.
+
+A troca de senha reaproveita `POST /users/me/password` da etapa de usuários: mesma política
+de força, mesma invalidação de token anterior, mesma emissão de token novo. Reimplementá-la
+aqui criaria duas políticas de senha no mesmo sistema, e uma delas ficaria para trás na
+primeira mudança de regra.
+
+### Auditoria
+
+| Método | Rota           | Acesso    | Descrição                                   |
+| ------ | -------------- | --------- | ------------------------------------------- |
+| `GET`  | `/audit-logs`  | **ADMIN** | Trilha paginada, com filtros e resumo       |
+| `POST` | `/auth/logout` | Autenticado | Registra a saída na trilha                |
+
+**Não existe rota de escrita, edição ou exclusão da trilha, e a ausência é o ponto.** Um
+`POST /audit-logs` permitiria forjar linhas; um `DELETE` permitiria apagar as próprias — as
+duas coisas que uma trilha de auditoria existe para impedir. Ela é preenchida pelos próprios
+serviços de negócio, no instante em que a ação acontece.
+
+**Parâmetros:** `action`, `entity`, `userId`, `search` (nome, e-mail, registro ou IP),
+`from`, `to`, `page`, `pageSize`.
+
+**O que cada linha guarda:** usuário (id, nome e e-mail), ação, entidade, id e identificação
+legível do registro, IP, navegador, dados relevantes da alteração e o instante.
+
+#### Diferença entre a trilha e o histórico de cliente/fatura
+
+Os dois coexistem porque respondem a perguntas diferentes:
+
+- `client_history` e `invoice_history` são o histórico de **negócio** de um registro,
+  exibido na ficha dele, campo a campo com valor anterior e novo.
+- `audit_logs` é o registro de **segurança** do sistema inteiro: inclui login, logout,
+  tentativa recusada, exportação de dados e alteração de configuração — coisas que não
+  pertencem à ficha de nenhum cliente.
+
+"o que mudou nesta fatura" contra "o que esta pessoa andou fazendo no sistema".
+
+#### Decisões que valem entender
+
+**O nome e o e-mail do autor são COPIADOS para a linha**, além da chave estrangeira. Não é
+redundância: `user_id` é `SetNull`, então excluir um usuário deixaria todas as linhas dele
+anônimas. Uma trilha que perde o "quem" ao remover a conta não serve para nada — e é
+justamente a conta de quem fez algo errado que alguém tentaria apagar.
+
+**Registrar nunca derruba a operação.** Uma falha ao gravar a trilha é registrada no log do
+processo e engolida. A alternativa — abortar o pagamento porque a auditoria falhou — faria
+desta tabela um ponto único de falha do sistema. Para um escritório de contabilidade, perder
+uma linha de trilha é menos grave que recusar um recebimento. **É uma escolha, não um
+descuido:** havendo exigência regulatória de não-repúdio, a gravação precisa passar para
+dentro da mesma transação da operação auditada.
+
+**Senha nunca entra na trilha.** O `metadata` passa por um sanitizador que remove, em
+qualquer nível do objeto, as chaves de senha, token e segredo — e o logotipo, que não é
+secreto mas é um data URL de centenas de kilobytes. É rede de proteção: quem chama já não
+manda senha, mas um dia alguém repassa o corpo inteiro da requisição sem pensar.
+
+**Login recusado é ação própria** (`LOGIN_FAILED`), não um login com marca de falha. É o que
+permite contar tentativas por conta e por IP — o sinal de força bruta. O motivo fica no
+`metadata`; a RESPOSTA ao cliente continua idêntica para e-mail inexistente e senha errada,
+senão o login vira um verificador de quais e-mails existem.
+
+**Exportar dados é registrado** (`EXPORT`). É o único evento em que o dado sai do sistema
+sem que nada mude no banco — sem essa linha, uma extração da carteira inteira de clientes
+não deixaria rastro nenhum.
+
+**Logout existe como rota** só para alimentar a trilha: o token é sem estado, e quem encerra
+a sessão de fato é o navegador apagando o que guardou. Sem a rota, a auditoria mostraria
+entradas e nenhuma saída.
+
 **Envelope das respostas** (exceto `/health`, que é rota de probe e responde o objeto cru):
 
 ```jsonc
@@ -888,13 +1467,16 @@ Client ──< Contract ──< Invoice ──< Payment
 
 | Tabela           | Papel                                                               |
 | ---------------- | ------------------------------------------------------------------- |
-| `users`          | Acesso ao sistema. Perfis `ADMIN` e `EMPLOYEE`                      |
+| `users`          | Acesso ao sistema. Perfis `ADMIN` e `EMPLOYEE`, senha provisória e carimbo da última troca |
 | `clients`        | Clientes do escritório. Situação `ACTIVE` / `INACTIVE`              |
 | `client_history` | Auditoria do cadastro: o que mudou, quando e por quem               |
 | `contracts`      | Contratos por cliente, com valor mensal e dia de vencimento         |
 | `invoices`       | Faturas. Vinculadas a um cliente e, opcionalmente, a um contrato     |
 | `invoice_history`| Auditoria da fatura: alterações, cancelamentos, pagamentos e estornos |
 | `payments`       | Pagamentos de uma fatura, com registro de quem lançou               |
+| `notifications`  | Alertas internos, um por usuário, com estado de leitura             |
+| `settings`       | Configuração do sistema — **uma linha**, de id fixo `singleton`     |
+| `audit_logs`     | Trilha de auditoria do sistema — append-only, nunca alterada        |
 
 **Decisões que valem entender:**
 
@@ -913,6 +1495,13 @@ Client ──< Contract ──< Invoice ──< Payment
 - **Pagamento parcial é a regra, não a exceção.** Cada pagamento é uma linha própria em `payments`, e a fatura só vira `PAID` quando a soma cobre o valor de face. Não existe campo "valor pago" na fatura: ele é derivado dos lançamentos, o que permite três parcelas com formas e datas diferentes sem nenhuma alteração de modelo.
 - **O histórico grava o valor anterior e o novo, campo a campo**, e apenas do que realmente mudou. O formulário reenvia todos os campos a cada gravação; sem esse filtro, corrigir um telefone geraria uma dúzia de linhas dizendo "mudou de X para X" e a auditoria ficaria ilegível em duas semanas.
 - **Ativar e inativar viram eventos próprios** no histórico, não uma alteração genérica de campo — a decisão de tirar um cliente de operação precisa saltar aos olhos no meio das trocas de telefone e CEP.
+- **`password_changed_at` existe para revogar token, não para curiosidade.** O JWT é sem estado: sem esse carimbo, desativar uma conta ou resetar o acesso só teria efeito quando o token expirasse — até um dia depois. Com ele, o middleware recusa qualquer token assinado antes da última troca, e o corte é imediato.
+- **`must_change_password` impede que uma senha conhecida vire permanente.** Toda senha definida por outra pessoa — a inicial do cadastro e a provisória do reset — nasce marcada. Enquanto a marca existir, o sistema cobra a troca. Sem isso, o administrador ficaria sabendo indefinidamente a senha de contas alheias, e o "quem registrou este pagamento" dos recebimentos deixaria de identificar alguém.
+- **A trilha de auditoria copia o nome e o e-mail do autor.** A chave estrangeira é `SetNull`, então excluir um usuário anonimizaria todas as linhas dele — e é justamente a conta de quem fez algo errado que alguém tentaria apagar. A cópia é o que faz a trilha sobreviver à remoção da conta.
+- **`audit_logs.metadata` é JSON, não colunas fixas.** O formato do "que mudou" varia por ação; colunas fixas obrigariam a migrar a tabela a cada ação nova. O custo é não poder indexar o conteúdo — aceitável, porque a consulta real é sempre por autor, ação, entidade ou período, e todos têm índice.
+- **A configuração é uma tabela de uma linha, com id fixo.** Não é gosto por simetria: com id gerado, duas gravações simultâneas criariam duas linhas e o sistema passaria a ler ora uma, ora outra. A chave fixa torna isso impossível, e o `upsert` cria a linha na primeira leitura — sem seed, sem migração de dados.
+- **O logotipo mora no banco, não no disco.** Um arquivo pequeno, de uma linha única, gravado como data URL dispensa diretório de upload, rota de estático, backup separado e limpeza de órfãos. Vale enquanto for UM logotipo; upload por cliente exigiria storage de verdade.
+- **Excluir usuário é barrado pela API, com o banco como segunda linha.** `payments.registered_by` é `onDelete: Restrict`, então o banco recusaria — mas com uma violação de chave estrangeira, que chega à tela como erro interno. A checagem em `deleteUser` existe para transformar isso em "este usuário registrou 12 pagamentos; inative-o". Já `client_history` e `invoice_history` usam `SetNull`: a auditoria sobrevive ao usuário, sem o nome dele.
 
 ---
 
@@ -936,6 +1525,19 @@ Client ──< Contract ──< Invoice ──< Payment
 | `npm run db:seed:demo`| Popula dados de demonstração                 |
 | `npm run db:studio`   | Abre o Prisma Studio (navegador do banco)    |
 | `npm run db:reset`    | **Apaga tudo**, migra e roda o seed de novo  |
+
+Produção (usam `.env.production` e `docker-compose.production.yml` — seção 16):
+
+| Comando               | O que faz                                                    |
+| --------------------- | ------------------------------------------------------------ |
+| `npm run prod:config` | Valida o compose e aponta variável faltando                  |
+| `npm run prod:build`  | Constrói as imagens                                          |
+| `npm run prod:up`     | Constrói, aplica as migrations e sobe tudo                   |
+| `npm run prod:ps`     | Situação dos containers                                      |
+| `npm run prod:logs`   | Acompanha os logs                                            |
+| `npm run prod:seed`   | Cria o administrador inicial                                 |
+| `npm run prod:backup` | Backup avulso do banco                                       |
+| `npm run prod:down`   | Para os containers (**não** apaga os dados)                  |
 
 ### Dados de demonstração
 
@@ -968,24 +1570,58 @@ Implementado nesta etapa:
 - **Sessão verificada no banco a cada requisição** — um usuário desativado perde o acesso na hora, sem esperar o token expirar.
 - **Autorização por perfil** via `roleMiddleware`, e **por campo** onde a rota sozinha não basta: na edição de clientes o funcionário altera contato e endereço, não a identidade fiscal; na edição de contratos ele não altera a situação. Nos dois casos a checagem é feita sobre o conteúdo do corpo, porque proteger apenas a rota dedicada deixaria o `PUT` como porta dos fundos.
 - **Trilha de auditoria** de clientes e faturas: cada alteração grava campo, valor anterior, valor novo, autor e horário; nas faturas entram também pagamentos, estornos, cancelamentos e reaberturas. O histórico sobrevive à remoção do usuário que o gerou.
+- **Notificações são pessoais e o recorte vem da sessão.** Nenhuma rota aceita `userId` do cliente, e uma notificação de outro usuário responde 404 em vez de 403 — um 403 confirmaria a existência do id.
 - **Situação de fatura não é aceita do cliente HTTP.** `status` é recusado no corpo da emissão e da edição — quem decide é o servidor, a partir da data, dos pagamentos e do cancelamento.
+- **Os relatórios financeiros são exclusivos do administrador**, checados no serviço porque a rota é compartilhada pelos quinze relatórios. O catálogo também os omite para o funcionário — mas quem barra é a checagem, não a omissão.
+- **Exportação com teto de 5.000 linhas** e sem dependência externa: os três formatadores são código do próprio projeto, então não há biblioteca de terceiros processando dado financeiro nem superfície de dependência a monitorar.
 - **O consolidado financeiro é exclusivo do administrador**, em todas as três rotas `/api/finance/*`. O funcionário continua vendo o financeiro de cada cliente e contrato nas fichas; o que não vê é a soma do escritório.
 - **Datas vão ao SQL como texto `YYYY-MM-DD`, nunca como `Date`.** A sessão do banco roda em `America/Sao_Paulo`, e um `Date` de meia-noite UTC convertido por `::date` retrocede um dia — o período perderia o dia corrente inteiro. Esta regra vale para todo raw query do projeto.
 - **Teto de paginação** de 100 registros por página: sem ele, `?pageSize=999999` seria uma negação de serviço trivial contra o banco.
 - **Validação de toda entrada** com Zod antes de tocar no banco.
 - **SQL injection**: o Prisma monta consultas parametrizadas; não há concatenação de SQL no projeto.
 - **CORS** com lista branca explícita — nunca `origin: true`.
-- **Rate limit**: 300 req/min por IP no geral, 10/min em `/auth/login`.
+- **Rate limit**: 300 req/min por IP no geral, 10/min em `/auth/login`, 6/min na troca de senha.
 - **Helmet** para cabeçalhos de segurança; corpo de requisição limitado a 1 MB.
 - **Mensagem única** para e-mail inexistente e senha errada, com tempo de resposta equalizado. Distinguir os casos transformaria o login num verificador de quais e-mails existem.
+- **A senha nunca sai pela API.** Todo o módulo de usuários lê pela constante `USER_SELECT`, que não inclui o campo — não existe consulta sem `select` para alguém esquecer de filtrar. As duas funções que precisam do hash (login e troca de senha) o pedem explicitamente e o descartam em seguida.
+- **Gerenciar usuários é exclusivo do administrador**, em todas as rotas `/api/users/*`, com uma exceção deliberada: `POST /users/me/password`, que age apenas sobre o dono do token. Um `userId` injetado no corpo é ignorado.
+- **Revogação imediata de token.** Resetar acesso, desativar conta e trocar senha gravam `password_changed_at`; o middleware recusa todo token anterior a esse instante. Sem isso, cortar o acesso de alguém levaria até 24 horas para surtir efeito — inclusive quando o corte é feito porque a conta foi comprometida.
+- **Senha provisória de uso único.** Gerada pelo sistema com `crypto.randomBytes` e sorteio sem viés de módulo, exibida uma única vez, nunca persistida em texto puro nem registrada em log. A conta fica marcada para troca obrigatória no acesso seguinte.
+- **O administrador não consegue se derrubar**, e nenhuma operação deixa o sistema sem administrador ativo — a contagem roda dentro da transação da escrita e a desfaz se chegar a zero.
+- **Rate limit** de 6 tentativas por minuto em `POST /users/me/password`: a rota confere a senha atual, então aceita palpites.
+- **Alterar a configuração do sistema é exclusivo do administrador**, nas três rotas de escrita. A leitura é aberta porque a interface precisa da marca para se desenhar, e nada ali é sigiloso.
+- **Trocar o próprio e-mail exige a senha atual.** O e-mail é a credencial de login: sem essa confirmação, um computador destravado por dois minutos permitiria apontar a conta para outro endereço e, de lá, pedir um reset de acesso.
+- **`PUT /users/me` recusa `role` e `active`** (schema estrito): a edição do próprio cadastro não é caminho curto para se promover a administrador.
+- **O logotipo é validado por tipo e tamanho** antes de ser gravado, e o SVG é renderizado apenas via `<img>` — contexto em que o navegador não executa script embutido no arquivo. Injetado inline no HTML, seria um vetor de XSS.
+- **O fuso horário vem de uma lista fechada.** Texto livre faria `Intl` lançar exceção dentro de `today()`, chamada em praticamente toda requisição — um erro de digitação derrubaria o sistema inteiro, não só a tela de configuração.
+- **Trilha de auditoria append-only** de login, logout, tentativa recusada, criação, alteração, inativação, cancelamento, pagamento, estorno, mudança de perfil, reset de acesso, alteração de configuração e exportação — com autor, IP, navegador e dados da alteração. Sem rota de escrita, edição ou exclusão.
+- **Constraints CHECK no banco** como última linha de defesa das invariantes: valor de fatura, pagamento e contrato sempre positivo; dia de vencimento entre 1 e 31; término não antes do início; vencimento não antes da emissão; CPF/CNPJ só com dígitos e no tamanho certo; e-mail com formato mínimo; e **senha obrigatoriamente com a forma de um hash bcrypt** — um bug que esquecesse o `hashPassword` é recusado pelo banco.
+- **Campos sensíveis removidos do log** (`redact` do pino, com `remove: true`): cabeçalho de autorização, cookie, senha, token e o data URL do logotipo. O Fastify não registra corpo por padrão; a lista existe para o dia em que alguém ligar esse log para depurar.
 - **Erros internos não vazam** stack trace nem detalhe de banco em produção.
+- **Configuração de produção validada na subida.** Com `NODE_ENV=production` a API não inicia com o `JWT_SECRET` ou a senha de banco dos arquivos de exemplo, sem `CORS_ORIGIN`, ou com origem malformada. Os valores de exemplo têm o formato certo e passariam por uma validação comum — e estão publicados no repositório.
+- **Política de conteúdo (CSP) na interface**, definida pelo nginx: só scripts do próprio sistema executam, nenhum de terceiros e nenhum embutido no HTML. É a principal contenção contra XSS enquanto o token ficar no `localStorage`. Acompanham `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy` e HSTS (só sob HTTPS).
+- **Respostas da API com `Cache-Control: no-store`**: dado financeiro de usuário autenticado não fica em cache de navegador nem de proxy.
+- **O IP do visitante não pode ser forjado.** O nginx sobrescreve `X-Forwarded-For` com o endereço de quem conectou, e só aceita o cabeçalho vindo de um proxy declarado em `TRUSTED_PROXY_CIDR`. Sem isso, trocar o cabeçalho a cada requisição contornaria o limite de tentativas de login.
+- **A API e o banco não publicam porta** no compose de produção; só o nginx (ou o Caddy) é alcançável de fora. Os processos rodam sem root e sem capacidades do kernel.
+- **Seeds protegidos em produção:** o do administrador recusa a senha de exemplo e marca a conta para troca obrigatória no primeiro login; o de demonstração, que apaga os dados, se recusa a executar.
+- **Destino pós-login restrito a caminho interno.** O endereço para onde a pessoa volta depois de entrar vem de um link que pode ter sido montado por terceiros; `//site.com` e `/\site.com` são descartados.
+- **Sem source maps publicados**: o build de produção não entrega o código-fonte original.
+- **Dependências auditadas** (`npm audit --omit=dev`): `@fastify/jwt` atualizado para a versão 10, que corrige avisos críticos da biblioteca de assinatura de token.
 
 **Ainda não implementado (planejado):**
 
 - Refresh token com rotação em cookie `httpOnly`. Hoje o token de acesso fica no `localStorage` — prático, mas vulnerável a XSS. Todo o acesso ao token passa por `frontend/src/utils/storage.ts` justamente para que a troca seja local.
-- Recuperação de senha por e-mail.
-- Constraints `CHECK` no banco (`dueDay` entre 1 e 31, `amount > 0`, `endDate >= startDate`). Hoje essas regras são garantidas pela validação Zod na API.
-- Auditoria de contratos — hoje existe para clientes e faturas.
+- Recuperação de senha **por autoatendimento**, via link enviado por e-mail. Hoje quem esquece a senha pede a um administrador, que reseta o acesso — suficiente para um escritório, insuficiente se o sistema crescer.
+- **Moeda e formato de data aplicados à exibição.** Os dois já são configuráveis, validados e guardados; a formatação da interface continua fixa em Real e dia/mês/ano. Ligar os dois é trocar a instanciação dos `Intl.*Format` em `frontend/src/utils/format.ts` pelos valores da configuração.
+- **Tema escuro.** Os tokens já estão mapeados em `src/index.css` e a rampa da marca já é dinâmica; falta o botão de alternância e a persistência da escolha.
+- Auditoria de contratos **campo a campo** — hoje o histórico detalhado existe para clientes e faturas; contratos aparecem na trilha de auditoria, mas sem o antes/depois de cada campo.
+- **Limite de tentativas por CONTA, além de por IP.** Hoje a força bruta é contida por IP (10 logins/min); quem rotacionar endereço contorna isso. A trilha já registra cada recusa, o que dá visibilidade — falta a ação automática. Um bloqueio por conta precisa ser desenhado com cuidado para não virar negação de serviço contra o dono da conta.
+- **Gravação da auditoria dentro da transação da operação.** Hoje uma falha ao auditar é engolida para não derrubar o negócio; sob exigência regulatória de não-repúdio, essa escolha se inverte.
+- **Suíte de testes automatizados.** Não há testes unitários nem de integração no repositório. O que existe é o teste de fumaça de `scripts/smoke-test.sh`, que confere uma instalação pronta de fora. A API já está preparada para testes de integração — `buildApp()` monta a aplicação sem abrir porta, para uso com `app.inject()` — e é por onde vale começar: regras de pagamento parcial, estorno e cálculo de situação da fatura.
+- **Avisos de dependência ainda abertos** (`npm audit --omit=dev`), todos fora do caminho de uma requisição:
+  - `prisma` (CLI) → `deepmerge-ts`: afeta o carregamento do arquivo de configuração do Prisma, não a API. A correção oferecida pelo npm é um *downgrade*; aguarda versão corrigida.
+  - `tailwindcss` 3 → `braces`, `micromatch`, `fast-glob`…: ferramentas de build, não vão para o navegador. A correção é migrar para o Tailwind 4.
+  - `react-router-dom` 6: redirecionamento aberto via `<Link>`/`navigate` com endereço controlado por terceiros. O único ponto do sistema que navega para um endereço vindo de fora (o retorno pós-login) foi restringido a caminho interno; a correção definitiva é migrar para o React Router 7.
 
 ---
 
@@ -1030,6 +1666,47 @@ A API não está rodando. Confira o Terminal 1 e teste `curl http://localhost:33
 **`P1001: Can't reach database server`** ao rodar migrations
 Mesmo caso: o banco não está no ar ou a `DATABASE_URL` aponta para host/porta errados.
 
+**O container do PostgreSQL encerra com `in 18+, these Docker images are configured to store database data in a format...`**
+O volume está montado em `/var/lib/postgresql/data`. A partir do PostgreSQL 18 o ponto de montagem
+é `/var/lib/postgresql` (sem `/data`). Os dois arquivos de compose do projeto já usam o caminho novo.
+
+**Produção: `Não foi possível iniciar: configuração insegura ou inválida`**
+A API recusou um valor de exemplo ou uma origem malformada; a mensagem lista cada variável. Corrija
+no `.env.production` e rode `docker compose ... up -d` de novo.
+
+**Produção: `required variable ... is missing a value`**
+Falta uma variável obrigatória no `.env.production` — ou o comando foi executado sem
+`--env-file .env.production`.
+
+**Produção: o `backend` não sobe e o `migrate` aparece como `Exited (1)`**
+Uma migration falhou; a API não inicia sobre um banco pela metade. Veja o motivo com
+`docker compose ... logs migrate`.
+
+**Produção: a API não conecta ao banco depois de trocar `POSTGRES_PASSWORD`**
+A senha é gravada no banco na primeira subida; mudar o arquivo depois não altera o banco já criado.
+Troque com `ALTER ROLE` ([seção 16.9](#169-restaurar-um-backup)).
+
+**Produção: tela branca e, no console, `violates the following Content Security Policy directive`**
+Algo que a política de conteúdo não autoriza está sendo carregado — tipicamente a API em outro
+domínio. Acrescente o endereço em `connect-src`, em `frontend/nginx/security-headers.conf`, e
+reconstrua a imagem da interface.
+
+**Produção: todos os usuários recebem "Muitas tentativas" ao mesmo tempo**
+Há um proxy na frente do nginx e a API está vendo o IP dele para todo mundo. Informe o endereço do
+proxy em `TRUSTED_PROXY_CIDR` ([seção 16.6](#166-https)).
+
+No **Docker Desktop** (Windows e macOS) isso acontece sempre, e não há o que configurar: toda
+conexão chega ao container vinda do endereço interno do Docker (`172.x.0.1`), então todos os
+visitantes dividem o mesmo limite de tentativas e é esse o endereço que a auditoria registra. O
+Docker Desktop serve para teste local; num servidor Linux com o Docker Engine padrão (não o modo
+*rootless*) o endereço de quem conectou é preservado.
+
+**Produção: a tela mostra "O sistema está indisponível no momento"**
+A interface respondeu, mas a API não — está parada, reiniciando ou sendo atualizada. É a resposta
+que o nginx e o Caddy dão no lugar da API (status 502 ou 504). Durante um `up -d --build` dura
+alguns segundos e passa sozinho. Se persistir, veja `npm run prod:ps` e
+`docker compose ... logs backend migrate`.
+
 ---
 
 ## 14. Trocar o logotipo
@@ -1051,8 +1728,14 @@ Resumo: substitua `frontend/src/assets/logo.svg` e `logo-mark.svg` mantendo os n
 | 4     | Faturas: CRUD, cancelamento, filtros, auditoria                          | Concluída |
 | 6     | Pagamentos: registro, duplicata, parcial, estorno, histórico de caixa    | Concluída |
 | 5a    | Painel: indicadores reais, gráficos, alertas, atividade recente          | Concluída |
-| 7     | Financeiro: períodos, gráficos, tabela, exportação CSV                   | Concluída |
-| 8     | Usuários, configurações, recuperação de senha, auditoria                 | A fazer  |
+| 7     | Financeiro: períodos, gráficos, tabela, exportação (os 3 formatos)        | Concluída |
+| 8     | Notificações: alertas persistidos, sino, leitura por usuário             | Concluída |
+| 9     | Usuários e permissões: RBAC, perfis, inativação, reset de acesso         | Concluída |
+| 10    | Relatórios: catálogo de 15, filtros, exportação CSV / Excel / PDF        | Concluída |
+| 11    | Configurações: empresa, identidade visual, perfil, preferências          | Concluída |
+| 12    | Auditoria e segurança: trilha, RBAC revisado, constraints, hardening     | Concluída |
+| 13    | UX e responsividade: tabelas adaptáveis, acessibilidade, estados de erro  | Concluída |
+| 14    | Produção: Docker, HTTPS, backup e restauração, hardening, documentação    | Concluída |
 
 **Por que o painel veio antes dos contratos.** A ordem original previa o painel por
 último. Ele foi antecipado porque os indicadores são o teste mais honesto do modelo de
@@ -1060,3 +1743,391 @@ dados: as consultas de faturamento, inadimplência e recebimento atravessam as c
 tabelas de uma vez e revelam cedo qualquer erro de modelagem — enquanto corrigi-lo ainda
 é barato. O painel já lê dados reais; a tela **Financeiro**, com fluxo de caixa por
 período, continua na etapa 5b.
+
+---
+
+## 16. Produção
+
+Como colocar o sistema num servidor. Tudo roda em containers Docker, descritos em
+[`docker-compose.production.yml`](docker-compose.production.yml).
+
+### 16.1 Arquitetura
+
+```text
+    navegador
+        │  HTTPS — Caddy (perfil "https") ou o proxy que o servidor já tiver
+        ▼
+    frontend    nginx: entrega a interface e repassa /api
+        │
+        ▼
+    backend     API Node (Fastify + Prisma)
+        │
+        ▼
+    postgres    PostgreSQL 18, dados em volume nomeado
+```
+
+| Serviço    | Imagem                               | Papel                                                  | Porta no servidor       |
+| ---------- | ------------------------------------ | ------------------------------------------------------ | ----------------------- |
+| `postgres` | `postgres:18-alpine`                 | Banco de dados                                         | nenhuma                 |
+| `migrate`  | `pro-accounting-api`                 | Aplica as migrations a cada subida e termina           | nenhuma                 |
+| `backend`  | `pro-accounting-api`                 | API                                                    | nenhuma                 |
+| `frontend` | `pro-accounting-web`                 | nginx: interface + proxy de `/api`                     | `APP_BIND` (padrão 80)  |
+| `backup`   | `postgres:18-alpine`                 | `pg_dump` ao subir e a cada 24 h, em `./backups`       | nenhuma                 |
+| `caddy`    | `caddy:2-alpine` (perfil `https`)    | HTTPS com certificado automático                       | 80 e 443                |
+
+Só o `frontend` (ou o Caddy) é alcançável de fora. **A API e o banco não publicam porta**: conversam
+apenas pela rede interna do compose. Interface e API saem pelo **mesmo endereço** — por isso o build
+de produção usa `VITE_API_URL=/api`, um caminho relativo, e não há requisição entre origens.
+
+### 16.2 O que o servidor precisa ter
+
+- Linux com **Docker Engine 24+** e o plugin **Docker Compose v2** (`docker compose version`).
+- 2 GB de RAM e 10 GB de disco livres são suficientes para um escritório.
+- Para HTTPS automático: um domínio apontando para o servidor e as portas **80** e **443** liberadas.
+- O repositório clonado (ou copiado) no servidor. Nenhum Node.js precisa ser instalado: o build
+  acontece dentro das imagens.
+
+### 16.3 Configuração
+
+```bash
+cp .env.production.example .env.production
+chmod 600 .env.production
+```
+
+Preencha o arquivo. As variáveis, por ordem de importância:
+
+| Variável                 | Exemplo                          | Para que serve                                                                 |
+| ------------------------ | -------------------------------- | ------------------------------------------------------------------------------ |
+| `APP_URL`                | `https://app.suaempresa.com.br`  | Endereço público, como aparece no navegador. É a única origem aceita pelo CORS  |
+| `POSTGRES_PASSWORD`      | *(gerada)*                       | Senha do banco. **Só letras e números** — ela entra numa URL de conexão         |
+| `JWT_SECRET`             | *(gerado)*                       | Assina os tokens de sessão. Mínimo de 32 caracteres                             |
+| `DOMAIN`                 | `app.suaempresa.com.br`          | Domínio do certificado. Só para o perfil `https`                                |
+| `APP_BIND`               | `80` ou `127.0.0.1:8080`         | Onde a interface é publicada no servidor                                        |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | —                        | Administrador inicial, usados uma vez pelo seed                                 |
+| `JWT_EXPIRES_IN`         | `8h`                             | Validade da sessão                                                              |
+| `POSTGRES_DB` / `POSTGRES_USER` | `pro_accounting`          | Nome do banco e do usuário                                                      |
+| `DB_TIMEZONE`            | `America/Sao_Paulo`              | Fuso do banco                                                                   |
+| `LOG_LEVEL`              | `info`                           | Nível mínimo do log da API                                                      |
+| `BACKUP_INTERVAL_HOURS`  | `24`                             | Intervalo entre backups automáticos                                             |
+| `BACKUP_RETENTION_DAYS`  | `14`                             | Backups mais antigos que isso são apagados                                      |
+| `APP_VERSION`            | `latest`                         | Marca das imagens construídas                                                   |
+| `TRUSTED_PROXY_CIDR`     | `127.0.0.1/32`                   | Endereço do seu proxy, se houver um na frente do nginx                          |
+
+Gerar os dois segredos:
+
+```bash
+openssl rand -hex 32        # POSTGRES_PASSWORD
+openssl rand -base64 48     # JWT_SECRET
+```
+
+A API **se recusa a iniciar em produção** com o `JWT_SECRET` ou a senha de banco dos arquivos de
+exemplo, sem `APP_URL`, ou com uma origem de CORS malformada (com caminho, com curinga) — e diz qual
+variável corrigir. É intencional: os valores de exemplo estão publicados no repositório.
+
+O `.env.production` não é versionado e não entra em nenhuma imagem.
+
+### 16.4 Subir
+
+Confira a configuração antes — interpola todas as variáveis e aponta a que estiver faltando:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.production.yml config --quiet
+```
+
+Depois:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.production.yml up -d --build
+```
+
+O que acontece, nesta ordem:
+
+1. as duas imagens são construídas (alguns minutos na primeira vez);
+2. o `postgres` sobe e espera ficar saudável;
+3. o `migrate` roda `prisma migrate deploy` — **cria as tabelas na primeira vez e aplica só o que
+   estiver pendente nas seguintes** — e termina;
+4. o `backend` sobe **somente se as migrations terminaram sem erro**;
+5. o `frontend` sobe quando a API responde ao health check.
+
+Conferir:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.production.yml ps -a
+```
+
+`postgres`, `backend` e `frontend` devem aparecer como `healthy`; `migrate`, como `Exited (0)`.
+
+Para não repetir o comando longo, há atalhos na raiz do projeto (`npm run prod:up`, `prod:ps`,
+`prod:logs`, `prod:down`, `prod:backup`, `prod:seed`) ou um alias:
+
+```bash
+alias dcp='docker compose --env-file .env.production -f docker-compose.production.yml'
+```
+
+Os exemplos abaixo usam `dcp`.
+
+### 16.5 Criar o administrador
+
+Com `ADMIN_EMAIL` e `ADMIN_PASSWORD` preenchidos no `.env.production`:
+
+```bash
+dcp run --rm backend node dist/database/seed.js
+```
+
+Em produção essa senha é **provisória**: o primeiro login abre a troca obrigatória, que não pode ser
+dispensada. O seed também recusa a senha de exemplo do repositório (`Admin@123456`). Depois de criar
+o administrador, **apague `ADMIN_PASSWORD` do `.env.production`**.
+
+O seed é idempotente: rodar de novo não duplica o usuário nem troca a senha dele.
+
+> `seed-demo` (dados de demonstração) **não roda em produção** — o script apaga todos os clientes,
+> contratos, faturas e pagamentos, e se recusa a executar com `NODE_ENV=production`.
+
+### 16.6 HTTPS
+
+Escolha **um** dos dois caminhos.
+
+**A. Caddy com certificado automático** — quando o servidor não tem outro proxy.
+
+No `.env.production`: `DOMAIN=app.suaempresa.com.br`, `APP_URL=https://app.suaempresa.com.br` e
+`APP_BIND=127.0.0.1:8080` (a interface deixa de ser publicada direto; quem atende a internet é o
+Caddy). Depois:
+
+```bash
+dcp --profile https up -d --build
+```
+
+O Caddy obtém o certificado Let's Encrypt na primeira subida, renova sozinho e redireciona
+`http://` para `https://`. Pré-requisitos: o domínio já apontando para o servidor e as portas 80 e
+443 abertas.
+
+**B. Proxy que o servidor já tem** (nginx, Traefik, balanceador, Cloudflare).
+
+Não use o perfil `https`. Aponte o proxy para a porta do `frontend` (`APP_BIND`) e faça-o enviar
+`X-Forwarded-Proto` e `X-Forwarded-For`. Informe o endereço do proxy em `TRUSTED_PROXY_CIDR`: é o
+que faz o limite de tentativas de login e a auditoria enxergarem o IP real do visitante, e não o do
+proxy. Sem isso, todos os usuários do escritório dividiriam o mesmo limite de requisições.
+
+Nos dois casos o cabeçalho HSTS só é emitido quando a requisição chegou por HTTPS.
+
+> **Sem HTTPS**, senha e token de sessão trafegam em texto puro. Só é aceitável numa rede interna
+> isolada. A API registra um aviso no log a cada subida se `APP_URL` começar com `http://`.
+
+### 16.7 Backup
+
+O serviço `backup` faz um `pg_dump` ao subir e outro a cada `BACKUP_INTERVAL_HOURS`, grava em
+`./backups` e apaga os mais antigos que `BACKUP_RETENTION_DAYS`:
+
+```text
+backups/
+├── pro_accounting-20261012-030000.dump          # formato "custom", comprimido
+└── pro_accounting-20261012-030000.dump.sha256   # soma de verificação
+```
+
+Cada arquivo é **validado antes de ser considerado pronto** (`pg_restore --list` lê o índice
+inteiro): um dump truncado falha na hora do backup, não no dia da restauração. Um backup que falha
+não apaga nenhum dos anteriores.
+
+Backup avulso — faça um **antes de toda atualização**:
+
+```bash
+dcp exec backup sh /scripts/backup.sh
+```
+
+Acompanhar:
+
+```bash
+dcp logs backup
+```
+
+> **`./backups` fica no mesmo disco do banco.** Isso protege contra erro humano e migration ruim,
+> não contra a perda do servidor. Copie a pasta para fora periodicamente — outro servidor ou
+> armazenamento em nuvem:
+>
+> ```bash
+> rsync -a --delete ./backups/ usuario@outro-servidor:/backups/pro-accounting/
+> ```
+>
+> Um backup que nunca foi restaurado é uma esperança, não um backup: restaure um deles num ambiente
+> de teste de tempos em tempos.
+
+### 16.8 Atualizar o sistema
+
+```bash
+dcp exec backup sh /scripts/backup.sh     # 1. backup avulso
+git pull                                  # 2. código novo
+dcp up -d --build                         # 3. reconstrói e sobe; as migrations rodam sozinhas
+dcp ps                                    # 4. confere
+```
+
+Se a migration nova falhar, o `migrate` sai com erro e **a API antiga continua no ar** (o `backend`
+novo não chega a subir). Veja o motivo com `dcp logs migrate`.
+
+Para poder voltar a uma versão anterior da aplicação, mude `APP_VERSION` a cada publicação
+(`APP_VERSION=2026.10.1`): as imagens antigas continuam no servidor. Voltar o **código** é
+`APP_VERSION=<anterior>` e `dcp up -d`; voltar o **banco**, se a migration tiver alterado dados, é
+restaurar o backup do passo 1.
+
+Quem estiver com o sistema aberto durante a atualização continua na versão antiga até navegar para
+uma tela carregada sob demanda cujo arquivo mudou; nesse momento a página recarrega sozinha, já na
+versão nova. Um formulário preenchido e ainda não salvo nessa aba se perde no recarregamento — avise
+os usuários antes de atualizar em horário de uso.
+
+### 16.9 Restaurar um backup
+
+```bash
+dcp stop backend                                                    # ninguém grava durante a troca
+dcp exec backup sh /scripts/restore.sh /backups/<arquivo>.dump      # pede o nome do banco para confirmar
+dcp start backend
+```
+
+O script **não restaura por cima do banco em uso**. Ele:
+
+1. confere a soma de verificação e a integridade do arquivo;
+2. restaura o backup num banco **novo e vazio**;
+3. confere que vieram as tabelas e as migrations do sistema;
+4. só então troca os nomes — o banco atual vira `<banco>_antes_<data>` e o restaurado assume o nome
+   oficial.
+
+Se qualquer passo falhar, o banco atual continua intacto. Depois da troca, o banco anterior fica
+guardado até você apagá-lo (o script imprime o comando). Restaurar direto sobre o banco em produção
+apagaria os dados atuais *antes* de saber se o backup está inteiro.
+
+Sem o Docker — por exemplo, para restaurar num PostgreSQL instalado na máquina — os mesmos scripts
+funcionam com as variáveis padrão do PostgreSQL:
+
+```bash
+export PGHOST=localhost PGPORT=5432 PGUSER=pro_accounting PGPASSWORD='...' PGDATABASE=pro_accounting
+BACKUP_DIR=./backups sh deploy/backup/backup.sh
+sh deploy/backup/restore.sh ./backups/<arquivo>.dump
+```
+
+**Trocar a senha do banco** depois de criado (mudar `POSTGRES_PASSWORD` no arquivo não altera um
+banco que já existe):
+
+```bash
+dcp exec postgres psql -U pro_accounting -c "ALTER ROLE pro_accounting PASSWORD 'nova-senha'"
+# atualize POSTGRES_PASSWORD no .env.production e:
+dcp up -d
+```
+
+### 16.10 Logs e monitoramento
+
+```bash
+dcp logs -f --tail=100              # tudo
+dcp logs -f backend                 # só a API
+```
+
+Em produção a API escreve **JSON, uma linha por evento, na saída padrão** — sem arquivo de log
+dentro do container. Quem guarda e rotaciona é o Docker: cada serviço fica limitado a 5 arquivos de
+10 MB (`x-logging` no compose). Senha, token e cabeçalho de autorização são removidos antes de a
+linha ser escrita.
+
+| Nível | Número | O que aparece                                                                    |
+| ----- | ------ | -------------------------------------------------------------------------------- |
+| info  | 30     | Cada requisição: método, rota, status e tempo de resposta                        |
+| warn  | 40     | Erros previstos: validação, 401, 404, limite de requisições (429)                |
+| error | 50     | Falhas inesperadas — vale um alerta                                              |
+| fatal | 60     | Exceção não capturada; o processo se encerra e o Docker sobe outro               |
+
+Verificações de saúde:
+
+| Endereço            | Quem responde | O que prova                                                       |
+| ------------------- | ------------- | ----------------------------------------------------------------- |
+| `GET /api/health`   | API           | Processo no ar **e** banco respondendo (`SELECT 1`). 503 se não   |
+| `GET /healthz`      | nginx         | A interface está sendo servida                                    |
+
+Aponte um monitor externo (UptimeRobot, Better Stack, o do seu provedor) para
+`https://<seu-domínio>/api/health` e alerte em qualquer resposta diferente de 200. As verificações
+de saúde não aparecem no log em nível `info`, para não enterrar o que importa.
+
+### 16.11 Teste de fumaça
+
+Depois de subir — e depois de cada atualização:
+
+```bash
+sh scripts/smoke-test.sh https://app.suaempresa.com.br admin@suaempresa.com.br 'senha'
+```
+
+São 36 verificações (37 sob HTTPS, com a do HSTS), só de leitura: interface, cache, cabeçalhos de
+segurança, health check, banco, rotas protegidas, formato de erro, CORS, login e paginação. Sem e-mail e senha, roda só a parte
+pública. Sai com código 0 se tudo passar.
+
+### 16.12 Sem Docker
+
+O compose é o caminho suportado, mas nada nele é obrigatório. Para rodar direto no servidor:
+
+```bash
+# API
+cd backend
+npm ci
+npm run build                          # prisma generate + tsc → dist/
+npm ci --omit=dev && npx prisma generate
+NODE_ENV=production npx prisma migrate deploy
+NODE_ENV=production node dist/server.js     # sob systemd ou pm2
+
+# Interface
+cd frontend
+npm ci
+npm run build                          # usa frontend/.env.production → dist/
+```
+
+As variáveis da API são as de `backend/.env.example`, com `NODE_ENV=production` e `CORS_ORIGIN` no
+lugar de `APP_URL`. Sirva `frontend/dist` com o nginx usando
+[`frontend/nginx/default.conf.template`](frontend/nginx/default.conf.template) como base: troque as
+três variáveis (`API_UPSTREAM`, `NGINX_RESOLVER`, `TRUSTED_PROXY_CIDR`) pelos seus valores.
+
+> No Windows com Git Bash, **não** passe `VITE_API_URL=/api` pela linha de comando: o shell converte
+> `/api` num caminho de arquivo do Windows e esse valor vai embutido no build. Deixe o
+> `frontend/.env.production` definir a variável.
+
+### 16.13 Checklist de produção
+
+O que o projeto garante, e como foi conferido:
+
+| Item            | Situação                                                                                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| HTTPS           | Caddy com certificado automático (perfil `https`) ou proxy próprio; HTTP redireciona; HSTS só sob HTTPS                 |
+| CORS            | Lista branca com uma origem (`APP_URL`); origem estranha não recebe cabeçalho; curinga e caminho são recusados na subida |
+| Secrets         | Só em `.env.production` (fora do Git e das imagens); valores de exemplo recusados em produção; nada de segredo no log   |
+| JWT             | Segredo de 32+ caracteres obrigatório; sessão de 8 h; token adulterado ou sem assinatura (`alg: none`) → 401            |
+| Banco           | PostgreSQL 18 sem porta publicada, volume nomeado, SCRAM-SHA-256, health check                                          |
+| Migrations      | `prisma migrate deploy` em serviço próprio; a API não sobe sobre migration que falhou; 11 migrations aplicam do zero    |
+| Backup          | Automático com retenção e validação; restauração em banco novo com troca de nomes; arquivo corrompido é recusado        |
+| Logs            | JSON na saída padrão, rotação pelo Docker, campos sensíveis removidos, health check fora do log                         |
+| Health check    | `/api/health` (API + banco) e `/healthz` (interface), usados pelo Docker para ordenar a subida                          |
+| Build           | Imagens em vários estágios, sem ferramentas de desenvolvimento; processo sem root; sem source maps publicados           |
+| Responsividade  | Sem rolagem lateral de 375 px a 1536 px, em oito larguras e também no build de produção (em 320 px, Faturas rola 27 px)  |
+| Testes          | Teste de fumaça automatizado (`scripts/smoke-test.sh`). **Não há suíte de testes unitários** — ver a seção 12           |
+
+O que cabe a quem opera — o projeto não tem como fazer por você:
+
+- [ ] Preencher `.env.production` com segredos **gerados**, e `chmod 600`.
+- [ ] Apontar o domínio para o servidor e liberar as portas 80 e 443 no firewall — e **só** elas
+      (mais a 22 do SSH).
+- [ ] Rodar o seed, trocar a senha provisória no primeiro login e apagar `ADMIN_PASSWORD` do arquivo.
+- [ ] Rodar `scripts/smoke-test.sh` contra o endereço público.
+- [ ] Configurar a cópia de `./backups` para **fora** do servidor e testar uma restauração.
+- [ ] Apontar um monitor externo para `/api/health`.
+- [ ] Manter o servidor atualizado (`apt upgrade`, `docker compose pull` das imagens base).
+
+> **Sobre a verificação das imagens.** Além da análise estática (`hadolint`,
+> `docker compose config`), as imagens foram construídas e a pilha inteira foi executada em Docker
+> real (Docker Desktop 29 no Windows, em 13/10/2026), partindo de um volume vazio:
+>
+> - `docker compose build` e `up -d` sem erro; as 11 migrations aplicadas pelo serviço `migrate`;
+> - teste de fumaça: 36 de 36 pelo nginx e 37 de 37 por HTTPS, com o container do Caddy;
+> - navegador real sobre o build de produção: troca obrigatória da senha, todas as telas sob a CSP,
+>   gráficos, 375 px, e o caminho cliente → contrato → fatura → pagamento gravando no banco;
+> - API recriada com outro IP: o nginx volta a alcançá-la sem ser reiniciado; com ela parada, a
+>   interface continua no ar e `/api` responde o erro em JSON;
+> - `down` seguido de `up`: os dados permanecem; parada da API em menos de 1 s, com código 0;
+> - backup avulso e automático; restauração desfazendo uma alteração feita depois do backup;
+>   backup vazio e arquivo truncado recusados, com o banco em uso intacto;
+> - limite de login mantido com `X-Forwarded-For` forjado a cada tentativa, pelo nginx e pelo Caddy;
+> - containers da API e da interface sem root e sem capacidades; só a interface publica porta.
+>
+> **O que não foi exercitado:** a emissão de certificado Let's Encrypt para um domínio de verdade (o
+> teste usou a autoridade interna do Caddy, com `DOMAIN=localhost`) e a execução num servidor Linux.
+> Na primeira subida no servidor, rode o teste de fumaça contra o endereço público antes de
+> divulgá-lo.

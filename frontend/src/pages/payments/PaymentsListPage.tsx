@@ -1,6 +1,4 @@
 import {
-  ArrowDownAZ,
-  ArrowUpAZ,
   CircleDollarSign,
   Search,
   SlidersHorizontal,
@@ -10,8 +8,14 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
+import { AmountRangeField } from '@/components/common/AmountRangeField';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
+import { SortSelect, type SortOption } from '@/components/common/SortSelect';
+import { SummaryTile } from '@/components/common/SummaryTile';
+import { TableSkeleton } from '@/components/common/TableSkeleton';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -35,16 +38,24 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usePayments } from '@/hooks/use-payments';
-import { PAYMENT_METHOD_LABELS } from '@/types/dashboard';
+import { INVOICE_STATUS_LABELS, PAYMENT_METHOD_LABELS } from '@/types/dashboard';
 import { PAYMENT_METHOD_OPTIONS } from '@/types/invoice';
 import type { PaymentListFilters } from '@/types/payment';
 import { formatCpfCnpj, formatCurrency, formatDate } from '@/utils/format';
-import { maskCurrency, parseCurrency, toCurrencyInput } from '@/utils/mask';
 
 /** Valor usado pelo Select para representar "sem filtro". */
 const ALL = '__all__';
 
 const PAGE_SIZE = 20;
+
+type PaymentSort = NonNullable<PaymentListFilters['sort']>;
+
+/** As mesmas colunas ordenáveis do cabeçalho da tabela. */
+const SORT_OPTIONS: SortOption<PaymentSort>[] = [
+  { column: 'paymentDate', label: 'Data' },
+  { column: 'client', label: 'Cliente' },
+  { column: 'amount', label: 'Valor' },
+];
 
 /**
  * Histórico de pagamentos.
@@ -123,7 +134,7 @@ export function PaymentsListPage() {
     [page, search, paymentMethod, clientId, dateFrom, dateTo, minAmount, maxAmount, sort, order],
   );
 
-  const { data, isPending, isFetching, isError, error } = usePayments(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = usePayments(filters);
 
   const hasActiveFilters = Boolean(
     search || paymentMethod || clientId || dateFrom || dateTo || minAmount || maxAmount,
@@ -165,23 +176,22 @@ export function PaymentsListPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {data
               ? `${data.total} ${data.total === 1 ? 'pagamento registrado' : 'pagamentos registrados'}`
-              : 'Carregando…'}
+              : isError
+                ? 'Lista indisponível no momento'
+                : 'Carregando…'}
           </p>
         </div>
 
         {/* O total do FILTRO, não da página — é a resposta que a tela existe
             para dar, e somar só a página mentiria a partir do 21º lançamento. */}
         {data && data.total > 0 && (
-          <Card className="min-w-[200px]">
-            <CardContent className="p-4">
-              <p className="text-xs font-medium text-muted-foreground">
-                Total {hasActiveFilters ? 'do filtro' : 'recebido'}
-              </p>
-              <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-700">
-                {formatCurrency(data.totalAmount)}
-              </p>
-            </CardContent>
-          </Card>
+          <div className="w-full min-w-[200px] sm:w-auto">
+            <SummaryTile
+              label={`Total ${hasActiveFilters ? 'do filtro' : 'recebido'}`}
+              value={formatCurrency(data.totalAmount)}
+              tone="text-emerald-700"
+            />
+          </div>
         )}
       </div>
 
@@ -208,8 +218,10 @@ export function PaymentsListPage() {
                 value={paymentMethod || ALL}
                 onValueChange={(value) => updateParams({ paymentMethod: value, page: '1' })}
               >
-                <SelectTrigger className="w-[170px]" aria-label="Filtrar por forma">
-                  <SlidersHorizontal className="size-4 text-muted-foreground" />
+                <SelectTrigger
+                  className="min-w-[160px] flex-1 sm:w-[190px] sm:flex-none"
+                  aria-label="Filtrar por forma de pagamento"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -222,6 +234,17 @@ export function PaymentsListPage() {
                 </SelectContent>
               </Select>
 
+              {/* A coluna "Cliente" só existe a partir de 768px. */}
+              <SortSelect
+                options={SORT_OPTIONS}
+                sort={sort}
+                order={order}
+                onChange={(column, nextOrder) =>
+                  updateParams({ sort: column, order: nextOrder, page: '1' })
+                }
+                className="md:hidden"
+              />
+
               <Button variant="outline" size="sm" onClick={() => applyQuickRange('today')}>
                 Hoje
               </Button>
@@ -233,6 +256,8 @@ export function PaymentsListPage() {
                 variant={showAdvanced ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setShowAdvanced(!showAdvanced)}
+                aria-expanded={showAdvanced}
+                aria-controls="pagamentos-filtros-avancados"
               >
                 <SlidersHorizontal />
                 Período e valor
@@ -252,10 +277,15 @@ export function PaymentsListPage() {
           </div>
 
           {showAdvanced && (
-            <div className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2">
+            <div
+              id="pagamentos-filtros-avancados"
+              className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2"
+            >
               <div className="space-y-1.5">
                 <Label className="text-xs">Data do pagamento</Label>
-                <div className="flex items-center gap-2">
+                {/* Dois campos de data lado a lado não cabem em 300px:
+                    empilham abaixo de 480px. */}
+                <div className="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:items-center">
                   <Input
                     type="date"
                     value={dateFrom}
@@ -264,7 +294,9 @@ export function PaymentsListPage() {
                     }
                     aria-label="Pagamento — de"
                   />
-                  <span className="text-xs text-muted-foreground">até</span>
+                  <span className="hidden text-xs text-muted-foreground min-[480px]:inline">
+                    até
+                  </span>
                   <Input
                     type="date"
                     value={dateTo}
@@ -289,11 +321,16 @@ export function PaymentsListPage() {
 
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
-        {isError ? (
-          <EmptyState
+        {/* `&& !data`: um refetch em segundo plano que falha (rede oscilou,
+            limite de requisições) deixa a consulta em erro COM os dados
+            anteriores em cache. Trocar a lista inteira por uma tela de erro
+            nesse caso esconderia conteúdo válido. */}
+        {isError && !data ? (
+          <ErrorState
             title="Não foi possível carregar os pagamentos"
             description={error instanceof Error ? error.message : undefined}
-            icon={CircleDollarSign}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
           <TableSkeleton />
@@ -326,41 +363,40 @@ export function PaymentsListPage() {
           />
         ) : (
           <>
+            {/* Colunas por largura de tela — mesma regra das outras listagens.
+                Abaixo de 768px a linha vira duas células: data, cliente e
+                fatura à esquerda; valor e forma à direita. */}
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>
-                    <SortButton
-                      label="Data"
-                      column="paymentDate"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Cliente"
-                      column="client"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead>Fatura</TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Valor"
-                      column="amount"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">Forma</TableHead>
-                  <TableHead className="hidden lg:table-cell">Usuário</TableHead>
-                  <TableHead className="hidden xl:table-cell">Situação da fatura</TableHead>
-                  <TableHead className="w-[60px] text-right">Ações</TableHead>
+                  <SortableHead
+                    label="Data"
+                    column="paymentDate"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                  />
+                  <SortableHead
+                    label="Cliente"
+                    column="client"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden md:table-cell"
+                  />
+                  <TableHead className="hidden md:table-cell">Fatura</TableHead>
+                  <SortableHead
+                    label="Valor"
+                    column="amount"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="text-right max-md:pr-4 md:text-left"
+                  />
+                  <TableHead className="hidden xl:table-cell">Forma</TableHead>
+                  <TableHead className="hidden wide:table-cell">Usuário</TableHead>
+                  <TableHead className="hidden 2xl:table-cell">Situação da fatura</TableHead>
+                  <TableHead className="hidden w-[60px] text-right xl:table-cell">Ações</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -371,11 +407,28 @@ export function PaymentsListPage() {
                     className="cursor-pointer"
                     onClick={() => navigate(`/faturas/${payment.invoice.id}`)}
                   >
-                    <TableCell className="whitespace-nowrap font-medium">
-                      {formatDate(payment.paymentDate)}
+                    <TableCell>
+                      <p className="whitespace-nowrap font-medium">
+                        {formatDate(payment.paymentDate)}
+                      </p>
+                      {/* Quem lançou só ganha coluna a partir de 1440px — e é
+                          para conferir isso que a tela existe. */}
+                      <p className="hidden max-w-[150px] truncate text-xs text-muted-foreground md:block wide:hidden">
+                        por {payment.registeredByName}
+                      </p>
+                      {/* Abaixo de 768px cliente e fatura não têm coluna
+                          própria: aparecem aqui em vez de sumir. */}
+                      <p className="text-sm text-foreground md:hidden">{payment.client.name}</p>
+                      <Link
+                        to={`/faturas/${payment.invoice.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="text-xs text-muted-foreground underline-offset-2 hover:underline md:hidden"
+                      >
+                        {payment.invoice.number}
+                      </Link>
                     </TableCell>
 
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <p className="max-w-[180px] truncate text-foreground">
                         {payment.client.name}
                       </p>
@@ -384,16 +437,29 @@ export function PaymentsListPage() {
                       </p>
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap">
-                      {payment.invoice.number}
+                    <TableCell className="hidden whitespace-nowrap md:table-cell">
+                      {/* Link de verdade: torna a fatura alcançável por teclado
+                          e leitor de tela. stopPropagation evita navegar duas
+                          vezes (link + clique da linha). */}
+                      <Link
+                        to={`/faturas/${payment.invoice.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="text-foreground underline-offset-2 hover:underline"
+                      >
+                        {payment.invoice.number}
+                      </Link>
                       {payment.contract && (
                         <p className="text-xs text-muted-foreground">
                           {payment.contract.number}
                         </p>
                       )}
+                      {/* A situação da fatura só ganha coluna a partir de 1536px. */}
+                      <p className="text-xs text-muted-foreground 2xl:hidden">
+                        {INVOICE_STATUS_LABELS[payment.invoice.status]}
+                      </p>
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap font-medium tabular-nums text-emerald-700">
+                    <TableCell className="whitespace-nowrap text-right font-medium tabular-nums text-emerald-700 max-md:pr-4 md:text-left">
                       {formatCurrency(payment.amount)}
                       {/* Pagamento menor que a fatura é parcial — dizer isso
                           evita que alguém leia a linha como quitação. */}
@@ -402,23 +468,27 @@ export function PaymentsListPage() {
                           de {formatCurrency(payment.invoice.amount)}
                         </p>
                       )}
+                      {/* A forma só ganha coluna a partir de 1280px. */}
+                      <p className="text-xs font-normal text-muted-foreground xl:hidden">
+                        {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
+                      </p>
                     </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap md:table-cell">
+                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
                       <Badge variant="outline">
                         {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
                       </Badge>
                     </TableCell>
 
-                    <TableCell className="hidden max-w-[160px] truncate lg:table-cell">
+                    <TableCell className="hidden max-w-[160px] truncate wide:table-cell">
                       {payment.registeredByName}
                     </TableCell>
 
-                    <TableCell className="hidden xl:table-cell">
+                    <TableCell className="hidden 2xl:table-cell">
                       <InvoiceStatusBadge status={payment.invoice.status} />
                     </TableCell>
 
-                    <TableCell className="text-right">
+                    <TableCell className="hidden text-right xl:table-cell">
                       <div onClick={(event) => event.stopPropagation()}>
                         <Button
                           variant="ghost"
@@ -455,106 +525,3 @@ export function PaymentsListPage() {
 }
 
 // ---------------------------------------------------------------------------
-
-/**
- * Faixa de valor.
- *
- * O estado local existe porque o campo é mascarado: a URL guarda `1500.00` e a
- * tela mostra `1.500,00`. Sem o intermediário, cada tecla reescreveria a URL e
- * a máscara brigaria com o cursor.
- */
-function AmountRangeField({
-  min,
-  max,
-  onChange,
-}: {
-  min: string;
-  max: string;
-  onChange: (min: string, max: string) => void;
-}) {
-  const [minInput, setMinInput] = useState(toCurrencyInput(min));
-  const [maxInput, setMaxInput] = useState(toCurrencyInput(max));
-
-  useEffect(() => {
-    setMinInput(toCurrencyInput(min));
-    setMaxInput(toCurrencyInput(max));
-  }, [min, max]);
-
-  function commit(nextMin: string, nextMax: string): void {
-    onChange(parseCurrency(nextMin), parseCurrency(nextMax));
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">Valor</Label>
-      <div className="flex items-center gap-2">
-        <Input
-          inputMode="numeric"
-          placeholder="mínimo"
-          className="tabular-nums"
-          value={minInput}
-          onChange={(event) => setMinInput(maskCurrency(event.target.value))}
-          onBlur={() => commit(minInput, maxInput)}
-          aria-label="Valor mínimo"
-        />
-        <span className="text-xs text-muted-foreground">até</span>
-        <Input
-          inputMode="numeric"
-          placeholder="máximo"
-          className="tabular-nums"
-          value={maxInput}
-          onChange={(event) => setMaxInput(maskCurrency(event.target.value))}
-          onBlur={() => commit(minInput, maxInput)}
-          aria-label="Valor máximo"
-        />
-      </div>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<PaymentListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<PaymentListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <Skeleton className="h-4 w-24" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-32" />
-          </div>
-          <Skeleton className="hidden h-4 w-20 sm:block" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-      ))}
-    </div>
-  );
-}

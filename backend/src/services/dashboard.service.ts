@@ -15,7 +15,7 @@ import {
   APP_TIME_ZONE,
   CHART_MONTHS,
   CONTRACT_EXPIRY_WINDOW_DAYS,
-  INVOICE_DUE_SOON_WINDOW_DAYS,
+  invoiceDueSoonWindowDays,
   addDays,
   addMonths,
   lastMonthKeys,
@@ -127,7 +127,7 @@ interface AlertInvoiceRow {
 export async function getDashboard(timeZone: string = APP_TIME_ZONE): Promise<DashboardResponse> {
   const referenceDate = today(timeZone);
   const contractExpiryLimit = addDays(referenceDate, CONTRACT_EXPIRY_WINDOW_DAYS);
-  const invoiceDueSoonLimit = addDays(referenceDate, INVOICE_DUE_SOON_WINDOW_DAYS);
+  const invoiceDueSoonLimit = addDays(referenceDate, invoiceDueSoonWindowDays());
   const chartRangeStart = addMonths(startOfMonth(referenceDate), -(CHART_MONTHS - 1));
 
   const [

@@ -39,6 +39,27 @@ const loginFormSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginFormSchema>;
 
+/**
+ * Aceita apenas caminho INTERNO como destino depois do login.
+ *
+ * O destino vem do endereço que a pessoa tentou abrir antes de se autenticar —
+ * ou seja, de um link que pode ter sido montado por terceiros. `//site.com` e
+ * `/\site.com` começam com barra e parecem caminho, mas o navegador os lê como
+ * endereço de outro domínio: um link para o sistema verdadeiro terminaria,
+ * depois do login, numa página falsa pedindo a senha de novo.
+ *
+ * Passa só o que começa com UMA barra seguida de algo que não seja barra nem
+ * contrabarra, e que não tenha contrabarra em lugar nenhum.
+ */
+function safeInternalPath(candidate: unknown): string {
+  const fallback = '/dashboard';
+
+  if (typeof candidate !== 'string') return fallback;
+  if (!/^\/(?![/\\])/.test(candidate) || candidate.includes('\\')) return fallback;
+
+  return candidate;
+}
+
 export function LoginPage() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
@@ -49,8 +70,9 @@ export function LoginPage() {
 
   // Se o usuário caiu no login ao tentar abrir uma página protegida, volta
   // para ela depois de entrar, em vez de despejá-lo sempre no painel.
-  const redirectTo =
-    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/dashboard';
+  const redirectTo = safeInternalPath(
+    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname,
+  );
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
@@ -138,8 +160,11 @@ export function LoginPage() {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Senha</FormLabel>
-                <FormControl>
-                  <div className="relative">
+                {/* O FormControl envolve o Input, não a div: é ele que liga o
+                    rótulo "Senha" ao campo e marca o erro. Na div, clicar no
+                    rótulo não focava nada. */}
+                <div className="relative">
+                  <FormControl>
                     <Input
                       type={showPassword ? 'text' : 'password'}
                       autoComplete="current-password"
@@ -148,23 +173,23 @@ export function LoginPage() {
                       disabled={isSubmitting}
                       {...field}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((current) => !current)}
-                      disabled={isSubmitting}
-                      // aria-label muda junto com o estado para que o leitor de
-                      // tela anuncie a ação correta, não um rótulo fixo.
-                      aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                      className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="size-4" aria-hidden="true" />
-                      ) : (
-                        <Eye className="size-4" aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                </FormControl>
+                  </FormControl>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    disabled={isSubmitting}
+                    // aria-label muda junto com o estado para que o leitor de
+                    // tela anuncie a ação correta, não um rótulo fixo.
+                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-0.5 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
                 <FormMessage />
               </FormItem>
             )}
@@ -190,7 +215,7 @@ export function LoginPage() {
         Esqueceu a senha? Solicite a redefinição a um administrador.
         <br />
         {/* A recuperação por e-mail entra na etapa de autenticação completa. */}
-        <span className="text-slate-400">Recuperação por e-mail em breve.</span>
+        Recuperação por e-mail em breve.
       </p>
     </div>
   );

@@ -14,7 +14,7 @@ const TabsList = React.forwardRef<
     className={cn(
       // Rolagem horizontal em vez de quebra de linha: com quatro abas no
       // celular, quebrar a linha empurraria o conteúdo para baixo da dobra.
-      'inline-flex w-full items-center justify-start gap-1 overflow-x-auto rounded-lg bg-secondary p-1 text-muted-foreground',
+      'scrollbar-none inline-flex w-full items-center justify-start gap-1 overflow-x-auto rounded-lg bg-secondary p-1 text-muted-foreground',
       className,
     )}
     {...props}
@@ -29,7 +29,9 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all',
+      // 40px de altura em tela de toque, 32px com mouse: a aba é o principal
+      // controle das fichas e 32px é pouco para acertar com o dedo.
+      'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all touch:min-h-10',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
       'disabled:pointer-events-none disabled:opacity-50',
       'data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm',

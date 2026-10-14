@@ -12,6 +12,15 @@ build/
 .env.*.local
 !.env.example
 
+# Produção: o .env.production da RAIZ tem a senha do banco e o segredo do JWT.
+# (O frontend/.env.production é versionado de propósito: só tem VITE_API_URL,
+# que é público por definição.)
+/.env.production
+/backend/.env.production
+
+# Backups do banco gerados pelo compose de produção
+/backups/
+
 # Prisma
 backend/prisma/*.db
 backend/prisma/*.db-journal
@@ -43,3 +52,6 @@ coverage/
 
 # Uploads locais
 backend/uploads/
+
+# Estado local do oh-my-claudecode (ferramenta de desenvolvimento)
+.omc/

@@ -1,0 +1,14 @@
+# Fim de linha LF nos arquivos que rodam DENTRO de containers Linux.
+#
+# No Windows, o Git costuma converter para CRLF ao baixar o repositório. Um
+# script de shell com CRLF falha em Linux com um erro que não menciona a causa
+# ("/bin/sh\r: not found"), e o mesmo vale para o Caddyfile e para o modelo do
+# nginx. Estas regras mantêm LF na cópia de trabalho em qualquer sistema.
+*.sh            text eol=lf
+*.template      text eol=lf
+*.conf          text eol=lf
+Dockerfile      text eol=lf
+.dockerignore   text eol=lf
+Caddyfile       text eol=lf
+*.yml           text eol=lf
+*.sql           text eol=lf

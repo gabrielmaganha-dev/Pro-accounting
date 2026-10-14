@@ -30,7 +30,14 @@ services:
       # 5433 na máquina -> 5432 dentro do container.
       - '${POSTGRES_PORT:-5433}:5432'
     volumes:
-      - pro-accounting-pgdata:/var/lib/postgresql/data
+      # /var/lib/postgresql, SEM "/data" no final.
+      #
+      # A partir do PostgreSQL 18 a imagem guarda os dados em
+      # /var/lib/postgresql/<versão>/docker, e o ponto de montagem passou a ser
+      # o diretório de cima. Com o volume no caminho antigo (.../data), o
+      # container se recusa a iniciar: o script de entrada detecta a montagem
+      # fora do lugar e encerra com erro.
+      - pro-accounting-pgdata:/var/lib/postgresql
     healthcheck:
       # O backend só deve migrar depois que o banco aceitar conexões.
       test:

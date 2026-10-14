@@ -1,5 +1,6 @@
 import { AlertTriangle, CalendarClock, CalendarX2, CheckCircle2, Clock } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -174,16 +175,25 @@ function AlertSection({
 
       <ul className="divide-y divide-border border-t border-border">
         {items.map((item) => (
-          <li key={item.id} className="flex items-center gap-2 px-3 py-2 text-xs">
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-foreground">{item.clientName}</p>
-              <p className="truncate text-muted-foreground">
-                {item.number} · {renderMeta(item)}
-              </p>
-            </div>
-            <span className="shrink-0 font-medium tabular-nums text-foreground">
-              {formatCurrency(item.amount)}
-            </span>
+          <li key={item.id}>
+            {/* O alerta leva à fatura de que fala — antes era só texto, e o
+                usuário tinha de ir a Faturas procurar o número à mão. */}
+            <Link
+              to={`/faturas/${item.id}`}
+              className="flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">{item.clientName}</p>
+                {/* No celular a linha quebra em vez de cortar: o que ficava de
+                    fora era justamente a data do vencimento. */}
+                <p className="text-muted-foreground sm:truncate">
+                  {item.number} · {renderMeta(item)}
+                </p>
+              </div>
+              <span className="shrink-0 font-medium tabular-nums text-foreground">
+                {formatCurrency(item.amount)}
+              </span>
+            </Link>
           </li>
         ))}
 
@@ -224,16 +234,22 @@ function ContractAlertSection({ count, items }: { count: number; items: AlertCon
 
       <ul className="divide-y divide-border border-t border-border">
         {items.map((item) => (
-          <li key={item.id} className="flex items-center gap-2 px-3 py-2 text-xs">
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-foreground">{item.clientName}</p>
-              <p className="truncate text-muted-foreground">
-                {item.number} · termina {formatDate(item.endDate)} · em {item.daysUntilExpiry} dia(s)
-              </p>
-            </div>
-            <span className="shrink-0 font-medium tabular-nums text-foreground">
-              {formatCurrency(item.monthlyValue)}/mês
-            </span>
+          <li key={item.id}>
+            <Link
+              to={`/contratos/${item.id}`}
+              className="flex items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">{item.clientName}</p>
+                <p className="text-muted-foreground sm:truncate">
+                  {item.number} · termina {formatDate(item.endDate)} · em {item.daysUntilExpiry}{' '}
+                  dia(s)
+                </p>
+              </div>
+              <span className="shrink-0 font-medium tabular-nums text-foreground">
+                {formatCurrency(item.monthlyValue)}/mês
+              </span>
+            </Link>
           </li>
         ))}
 

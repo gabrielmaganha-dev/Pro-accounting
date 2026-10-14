@@ -39,6 +39,15 @@ interface ClientPickerProps {
   hasError?: boolean;
   /** Rótulo do botão que limpa a escolha. */
   clearLabel?: string;
+  /**
+   * Vêm do `<FormControl>` (ou de um `<Label htmlFor>`) e vão para o controle
+   * que estiver na tela — o campo de busca, ou o botão de trocar quando já há
+   * cliente escolhido. Sem eles o rótulo "Cliente" ficava solto: clicar nele
+   * não focava nada, e a mensagem de erro não era lida junto do campo.
+   */
+  id?: string;
+  'aria-describedby'?: string;
+  'aria-invalid'?: boolean;
 }
 
 export function ClientPicker({
@@ -48,7 +57,15 @@ export function ClientPicker({
   disabled = false,
   hasError = false,
   clearLabel = 'Trocar',
+  id,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
 }: ClientPickerProps) {
+  const fieldProps = {
+    ...(id ? { id } : {}),
+    ...(ariaDescribedBy ? { 'aria-describedby': ariaDescribedBy } : {}),
+  };
+
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
 
@@ -89,7 +106,14 @@ export function ClientPicker({
         <div className="flex shrink-0 items-center gap-2">
           {selected.status === 'INACTIVE' && <ClientStatusBadge status="INACTIVE" />}
 
-          <Button type="button" variant="ghost" size="sm" onClick={onClear} disabled={disabled}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            disabled={disabled}
+            {...fieldProps}
+          >
             <X />
             {clearLabel}
           </Button>
@@ -111,7 +135,9 @@ export function ClientPicker({
           placeholder="Buscar por nome, CPF/CNPJ ou e-mail…"
           className={cn('pl-9', hasError && 'border-destructive')}
           disabled={disabled}
-          aria-label="Buscar cliente para o contrato"
+          aria-label="Buscar cliente"
+          {...fieldProps}
+          {...(ariaInvalid ? { 'aria-invalid': true } : {})}
         />
         {isFetching && (
           <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />

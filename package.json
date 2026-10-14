@@ -21,6 +21,14 @@
     "db:seed": "npm run db:seed --prefix backend",
     "db:seed:demo": "npm run db:seed:demo --prefix backend",
     "db:studio": "npm run db:studio --prefix backend",
-    "db:reset": "npm run db:reset --prefix backend"
+    "db:reset": "npm run db:reset --prefix backend",
+    "prod:config": "docker compose --env-file .env.production -f docker-compose.production.yml config --quiet",
+    "prod:build": "docker compose --env-file .env.production -f docker-compose.production.yml build",
+    "prod:up": "docker compose --env-file .env.production -f docker-compose.production.yml up -d --build",
+    "prod:down": "docker compose --env-file .env.production -f docker-compose.production.yml down",
+    "prod:ps": "docker compose --env-file .env.production -f docker-compose.production.yml ps",
+    "prod:logs": "docker compose --env-file .env.production -f docker-compose.production.yml logs -f --tail=100",
+    "prod:seed": "docker compose --env-file .env.production -f docker-compose.production.yml run --rm backend node dist/database/seed.js",
+    "prod:backup": "docker compose --env-file .env.production -f docker-compose.production.yml exec backup sh /scripts/backup.sh"
   }
 }

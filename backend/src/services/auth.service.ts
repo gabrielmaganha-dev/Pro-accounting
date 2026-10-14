@@ -31,6 +31,7 @@ export async function login(app: FastifyInstance, input: LoginInput): Promise<Lo
       email: true,
       role: true,
       active: true,
+      mustChangePassword: true,
       password: true,
     },
   });
@@ -54,6 +55,26 @@ export async function login(app: FastifyInstance, input: LoginInput): Promise<Lo
     throw AppError.forbidden('Seu acesso foi desativado. Procure um administrador.');
   }
 
+  return issueSession(app, {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    mustChangePassword: user.mustChangePassword,
+  });
+}
+
+/**
+ * Emite um token para um usuário já autenticado.
+ *
+ * Existe separada do `login` porque a troca de senha também precisa emitir um:
+ * ela carimba `passwordChangedAt`, e o token que a pessoa estava usando passa
+ * a ser anterior a esse instante — ou seja, é recusado na requisição seguinte.
+ * Sem um token novo, trocar a senha derrubaria a própria sessão de quem
+ * trocou, e o sistema pareceria estar expulsando quem acabou de fazer a coisa
+ * certa.
+ */
+export function issueSession(app: FastifyInstance, user: AuthenticatedUser): LoginResult {
   const payload: JwtPayload = {
     sub: user.id,
     name: user.name,
@@ -64,14 +85,5 @@ export async function login(app: FastifyInstance, input: LoginInput): Promise<Lo
   // A validade vem das opções de `sign` registradas em app.ts (JWT_EXPIRES_IN).
   const token = app.jwt.sign(payload);
 
-  return {
-    token,
-    expiresIn: env.JWT_EXPIRES_IN,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-  };
+  return { token, expiresIn: env.JWT_EXPIRES_IN, user };
 }

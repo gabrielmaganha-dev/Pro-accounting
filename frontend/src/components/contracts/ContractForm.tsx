@@ -188,13 +188,16 @@ export function ContractForm({
               render={({ fieldState }) => (
                 <FormItem>
                   <FormLabel>Cliente do contrato *</FormLabel>
-                  <ClientPicker
-                    selected={selectedClient}
-                    onSelect={handleSelectClient}
-                    onClear={handleClearClient}
-                    disabled={isSubmitting}
-                    hasError={Boolean(fieldState.error)}
-                  />
+                  {/* FormControl liga o rótulo e a mensagem de erro ao seletor. */}
+                  <FormControl>
+                    <ClientPicker
+                      selected={selectedClient}
+                      onSelect={handleSelectClient}
+                      onClear={handleClearClient}
+                      disabled={isSubmitting}
+                      hasError={Boolean(fieldState.error)}
+                    />
+                  </FormControl>
                   <FormDescription>
                     Todo contrato pertence a um cliente. Para trocar, remova o atual e busque
                     outro.
@@ -332,11 +335,18 @@ export function ContractForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Valor mensal *</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                        R$
-                      </span>
+                  {/* O FormControl envolve o Input, não a div do prefixo: é ele
+                      que entrega id, aria-invalid e aria-describedby, e na div
+                      eles não ligavam o rótulo ao campo nem acendiam a borda
+                      de erro. */}
+                  <div className="relative">
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground"
+                    >
+                      R$
+                    </span>
+                    <FormControl>
                       <Input
                         inputMode="numeric"
                         placeholder="0,00"
@@ -345,8 +355,8 @@ export function ContractForm({
                         {...field}
                         onChange={(event) => field.onChange(maskCurrency(event.target.value))}
                       />
-                    </div>
-                  </FormControl>
+                    </FormControl>
+                  </div>
                   <FormDescription>
                     Digite apenas números — os centavos são preenchidos da direita para a esquerda.
                   </FormDescription>
@@ -408,6 +418,10 @@ export function ContractForm({
                   <FormControl>
                     <Textarea
                       rows={4}
+                      // O título do card ("Observações") é o rótulo visual, mas
+                      // não está ligado ao campo: sem isto o leitor de tela
+                      // anuncia só "campo de edição".
+                      aria-label="Observações do contrato"
                       placeholder="Escopo acordado, condições especiais, reajustes combinados."
                       disabled={isSubmitting}
                       {...field}

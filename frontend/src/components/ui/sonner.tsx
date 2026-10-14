@@ -16,6 +16,11 @@ function Toaster(props: ToasterProps) {
       richColors
       closeButton
       duration={4000}
+      // Abaixo da barra do topo (64px). Sem o recuo, cada aviso cobria por
+      // quatro segundos justamente o sino e o menu do usuário — e, no celular,
+      // o botão do menu.
+      offset={{ top: 76, right: 24 }}
+      mobileOffset={{ top: 72, left: 16, right: 16 }}
       toastOptions={{
         classNames: {
           toast: 'font-sans',

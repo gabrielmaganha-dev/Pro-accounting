@@ -16,6 +16,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { SummaryTile } from '@/components/common/SummaryTile';
+import { TableSkeleton } from '@/components/common/TableSkeleton';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { RegisterPaymentDialog } from '@/components/invoices/RegisterPaymentDialog';
@@ -51,6 +54,7 @@ import {
   useUpdateInvoiceStatus,
 } from '@/hooks/use-invoices';
 import { cn } from '@/lib/utils';
+import { ApiError } from '@/services/api';
 import { PAYMENT_METHOD_LABELS } from '@/types/dashboard';
 import {
   INVOICE_HISTORY_ACTION_LABELS,
@@ -69,7 +73,7 @@ export function InvoiceDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const { data: invoice, isPending, isError } = useInvoice(id);
+  const { data: invoice, isPending, isError, error, refetch, isFetching } = useInvoice(id);
   const statusMutation = useUpdateInvoiceStatus();
   const deleteMutation = useDeleteInvoice();
 
@@ -82,7 +86,27 @@ export function InvoiceDetailPage() {
 
   if (isPending) return <DetailSkeleton />;
 
-  if (isError || !invoice) {
+  // Só o 404 significa que o registro não existe. Rede fora, 500 e limite de
+  // requisições são falhas passageiras: dizer "não encontrado" nesses casos
+  // faria o usuário achar que o registro foi apagado.
+  // `!invoice`: só troca a tela por erro quando não há nada em cache. Um refetch
+  // em segundo plano que falha (rede oscilou, limite de requisições) deixa a
+  // consulta em erro COM os dados anteriores — e nesse caso o conteúdo válido
+  // continua na tela.
+  if (isError && !invoice && !(error instanceof ApiError && error.status === 404)) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar a fatura"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
+      </Card>
+    );
+  }
+
+  if (!invoice) {
     return (
       <Card>
         <EmptyState
@@ -468,35 +492,6 @@ function statusExplanation(invoice: Invoice): string {
   }
 }
 
-function SummaryTile({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p
-          className={cn(
-            'mt-1 truncate text-lg font-semibold tabular-nums',
-            tone ?? 'text-foreground',
-          )}
-        >
-          {value}
-        </p>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
 function Field({
   label,
   value,
@@ -524,18 +519,37 @@ function Field({
 
 /** Lista de pagamentos, com estorno para administradores. */
 function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean }) {
-  const { data: payments, isPending } = useInvoicePayments(invoice.id);
+  const {
+    data: payments,
+    isPending,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useInvoicePayments(invoice.id);
   const removeMutation = useRemovePayment();
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   if (isPending) {
     return (
+      <Card className="overflow-hidden">
+        <TableSkeleton rows={3} />
+      </Card>
+    );
+  }
+
+  // Falha não é "vazio": sem isto, um erro de rede numa fatura com pagamentos
+  // mostrava "Nenhum pagamento registrado — use o botão Registrar pagamento".
+  if (isError && !payments) {
+    return (
       <Card>
-        <CardContent className="space-y-3 p-4">
-          {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-12 w-full" />
-          ))}
-        </CardContent>
+        <ErrorState
+          title="Não foi possível carregar os pagamentos"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+          compact
+        />
       </Card>
     );
   }
@@ -559,15 +573,17 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
 
   return (
     <Card className="overflow-hidden">
+      {/* Mesma regra das listagens: no celular a forma de pagamento vira
+          subtítulo da data, e o estorno fica só com o ícone. */}
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Data</TableHead>
             <TableHead>Valor</TableHead>
-            <TableHead>Forma</TableHead>
+            <TableHead className="hidden sm:table-cell">Forma</TableHead>
             <TableHead className="hidden md:table-cell">Registrado por</TableHead>
-            <TableHead className="hidden lg:table-cell">Observações</TableHead>
-            {isAdmin && <TableHead className="w-[100px] text-right">Ações</TableHead>}
+            <TableHead className="hidden xl:table-cell">Observações</TableHead>
+            {isAdmin && <TableHead className="w-[60px] text-right sm:w-[100px]">Ações</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -575,17 +591,27 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
             <TableRow key={payment.id}>
               <TableCell className="whitespace-nowrap">
                 {formatDate(payment.paymentDate)}
+                <p className="text-xs text-muted-foreground sm:hidden">
+                  {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
+                </p>
+                {/* A observação só ganha coluna a partir de 1280px. A célula é
+                    nowrap por causa da data; o texto livre precisa quebrar. */}
+                {payment.notes && (
+                  <p className="max-w-[240px] whitespace-normal break-words text-xs text-muted-foreground xl:hidden">
+                    {payment.notes}
+                  </p>
+                )}
               </TableCell>
               <TableCell className="whitespace-nowrap font-medium tabular-nums text-emerald-700">
                 {formatCurrency(payment.amount)}
               </TableCell>
-              <TableCell className="whitespace-nowrap">
+              <TableCell className="hidden whitespace-nowrap sm:table-cell">
                 {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
               </TableCell>
               <TableCell className="hidden whitespace-nowrap md:table-cell">
                 {payment.registeredByName}
               </TableCell>
-              <TableCell className="hidden max-w-[220px] truncate lg:table-cell">
+              <TableCell className="hidden max-w-[220px] truncate xl:table-cell">
                 {payment.notes ?? <span className="text-muted-foreground">—</span>}
               </TableCell>
               {isAdmin && (
@@ -597,7 +623,7 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
                     aria-label="Estornar pagamento"
                   >
                     <Undo2 />
-                    Estornar
+                    <span className="hidden sm:inline">Estornar</span>
                   </Button>
                 </TableCell>
               )}
@@ -637,7 +663,10 @@ function PaymentsTab({ invoice, isAdmin }: { invoice: Invoice; isAdmin: boolean 
 
 function HistoryTab({ invoiceId }: { invoiceId: string }) {
   const [page, setPage] = useState(1);
-  const { data, isPending } = useInvoiceHistory(invoiceId, page);
+  const { data, isPending, isError, error, refetch, isFetching } = useInvoiceHistory(
+    invoiceId,
+    page,
+  );
 
   if (isPending) {
     return (
@@ -647,6 +676,22 @@ function HistoryTab({ invoiceId }: { invoiceId: string }) {
             <Skeleton key={index} className="h-12 w-full" />
           ))}
         </CardContent>
+      </Card>
+    );
+  }
+
+  // Falha não é "vazio": sem isto, um erro de rede mostrava "sem eventos" como
+  // se o registro nunca tivesse sido alterado.
+  if (isError && !data) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o histórico"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+          compact
+        />
       </Card>
     );
   }

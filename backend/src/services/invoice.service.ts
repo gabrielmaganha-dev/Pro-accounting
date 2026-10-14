@@ -21,6 +21,7 @@ import type {
   RegisterPaymentInput,
   UpdateInvoiceInput,
 } from '../validators/invoice.validator.js';
+import { requestResweep } from './notification-sweep-state.js';
 
 /** Rótulos dos campos, usados nas mensagens de erro e no histórico. */
 const FIELD_LABELS: Record<string, string> = {
@@ -310,6 +311,8 @@ export async function createInvoice(input: CreateInvoiceInput, user: Authenticat
     return invoice;
   });
 
+  requestResweep();
+
   return getInvoiceById(created.id);
 }
 
@@ -466,7 +469,9 @@ export async function updateInvoice(
   // Nada mudou de fato: devolve o registro sem gravar linha de histórico.
   // Salvar um formulário sem alterar nada não deve poluir a auditoria.
   if (changes.length === 0) {
-    return getInvoiceById(id);
+    requestResweep();
+
+  return getInvoiceById(id);
   }
 
   await prisma.$transaction(async (tx) => {
@@ -508,6 +513,8 @@ export async function updateInvoice(
       }
     }
   });
+
+  requestResweep();
 
   return getInvoiceById(id);
 }
@@ -611,7 +618,9 @@ export async function setInvoiceStatus(
       });
     });
 
-    return getInvoiceById(id);
+    requestResweep();
+
+  return getInvoiceById(id);
   }
 
   // Reabertura
@@ -639,6 +648,8 @@ export async function setInvoiceStatus(
       },
     });
   });
+
+  requestResweep();
 
   return getInvoiceById(id);
 }
@@ -681,6 +692,8 @@ export async function deleteInvoice(id: string) {
   }
 
   await prisma.invoice.delete({ where: { id } });
+
+  requestResweep();
 }
 
 // ---------------------------------------------------------------------------
@@ -853,6 +866,8 @@ export async function registerPayment(
     }
   });
 
+  requestResweep();
+
   return getInvoiceById(invoiceId);
 }
 
@@ -914,6 +929,8 @@ export async function removePayment(
       },
     });
   });
+
+  requestResweep();
 
   return getInvoiceById(invoiceId);
 }

@@ -10,6 +10,10 @@ const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLI
         ref={ref}
         className={cn(
           'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors',
+          // 16px em tela de toque: abaixo disso o Safari do iPhone dá zoom na
+          // página inteira ao focar o campo, e o usuário precisa "despinçar"
+          // a tela a cada campo preenchido.
+          'touch:text-base',
           'file:border-0 file:bg-transparent file:text-sm file:font-medium',
           'placeholder:text-muted-foreground',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',

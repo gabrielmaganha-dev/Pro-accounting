@@ -25,7 +25,9 @@ const buttonVariants = cva(
         default: 'h-10 px-4 py-2',
         sm: 'h-9 rounded-md px-3',
         lg: 'h-11 rounded-md px-6 text-base',
-        icon: 'h-10 w-10',
+        // shrink-0: dentro de um flex com texto longo ao lado, o botão era
+        // espremido — o "Voltar" de 40px chegava a 23px no celular.
+        icon: 'h-10 w-10 shrink-0',
       },
     },
     defaultVariants: {

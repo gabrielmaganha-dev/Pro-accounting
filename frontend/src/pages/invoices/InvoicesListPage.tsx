@@ -1,20 +1,14 @@
-import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  Eye,
-  FilePlus2,
-  Pencil,
-  Plus,
-  ReceiptText,
-  Search,
-  SlidersHorizontal,
-  X,
-} from 'lucide-react';
+import { Eye, FilePlus2, Pencil, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
+import { AmountRangeField } from '@/components/common/AmountRangeField';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
+import { SortSelect, type SortOption } from '@/components/common/SortSelect';
+import { TableSkeleton } from '@/components/common/TableSkeleton';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -40,12 +33,22 @@ import { useInvoices } from '@/hooks/use-invoices';
 import { INVOICE_STATUS_LABELS } from '@/types/dashboard';
 import { INVOICE_STATUS_OPTIONS, type InvoiceListFilters } from '@/types/invoice';
 import { formatCurrency, formatDate } from '@/utils/format';
-import { maskCurrency, parseCurrency, toCurrencyInput } from '@/utils/mask';
 
 /** Valor usado pelo Select para representar "sem filtro". */
 const ALL = '__all__';
 
 const PAGE_SIZE = 20;
+
+type InvoiceSort = NonNullable<InvoiceListFilters['sort']>;
+
+/** As mesmas colunas ordenáveis do cabeçalho da tabela. */
+const SORT_OPTIONS: SortOption<InvoiceSort>[] = [
+  { column: 'dueDate', label: 'Vencimento' },
+  { column: 'issueDate', label: 'Emissão' },
+  { column: 'number', label: 'Número' },
+  { column: 'client', label: 'Cliente' },
+  { column: 'amount', label: 'Valor' },
+];
 
 export function InvoicesListPage() {
   const navigate = useNavigate();
@@ -130,7 +133,7 @@ export function InvoicesListPage() {
     ],
   );
 
-  const { data, isPending, isFetching, isError, error } = useInvoices(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = useInvoices(filters);
 
   const hasActiveFilters = Boolean(
     search || status || clientId || contractId ||
@@ -168,7 +171,9 @@ export function InvoicesListPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {data
               ? `${data.total} ${data.total === 1 ? 'fatura encontrada' : 'faturas encontradas'}`
-              : 'Carregando…'}
+              : isError
+                ? 'Lista indisponível no momento'
+                : 'Carregando…'}
           </p>
         </div>
 
@@ -203,8 +208,10 @@ export function InvoicesListPage() {
                 value={status || ALL}
                 onValueChange={(value) => updateParams({ status: value, page: '1' })}
               >
-                <SelectTrigger className="w-[170px]" aria-label="Filtrar por situação">
-                  <SlidersHorizontal className="size-4 text-muted-foreground" />
+                <SelectTrigger
+                  className="min-w-[160px] flex-1 sm:w-[190px] sm:flex-none"
+                  aria-label="Filtrar por situação"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -217,10 +224,25 @@ export function InvoicesListPage() {
                 </SelectContent>
               </Select>
 
+              {/* "Vencimento" — a ordenação padrão — só tem cabeçalho a partir
+                  de 1280px, e "Emissão" a partir de 1536px. Abaixo disso é
+                  por aqui que se ordena. */}
+              <SortSelect
+                options={SORT_OPTIONS}
+                sort={sort}
+                order={order}
+                onChange={(column, nextOrder) =>
+                  updateParams({ sort: column, order: nextOrder, page: '1' })
+                }
+                className="2xl:hidden"
+              />
+
               <Button
                 variant={showAdvanced ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setShowAdvanced(!showAdvanced)}
+                aria-expanded={showAdvanced}
+                aria-controls="faturas-filtros-avancados"
               >
                 <SlidersHorizontal />
                 Período e valor
@@ -243,7 +265,10 @@ export function InvoicesListPage() {
               quase ninguém usa no dia a dia, e deixá-los sempre visíveis
               tornaria a barra de filtros mais alta que a própria tabela. */}
           {showAdvanced && (
-            <div className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div
+              id="faturas-filtros-avancados"
+              className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-2 xl:grid-cols-3"
+            >
               <DateRangeField
                 label="Vencimento"
                 from={dueFrom}
@@ -274,11 +299,16 @@ export function InvoicesListPage() {
 
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
-        {isError ? (
-          <EmptyState
+        {/* `&& !data`: um refetch em segundo plano que falha (rede oscilou,
+            limite de requisições) deixa a consulta em erro COM os dados
+            anteriores em cache. Trocar a lista inteira por uma tela de erro
+            nesse caso esconderia conteúdo válido. */}
+        {isError && !data ? (
+          <ErrorState
             title="Não foi possível carregar as faturas"
             description={error instanceof Error ? error.message : undefined}
-            icon={ReceiptText}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
           <TableSkeleton />
@@ -312,59 +342,60 @@ export function InvoicesListPage() {
           />
         ) : (
           <>
+            {/* Colunas por largura de tela — mesma regra das outras listagens.
+
+                Eram dez colunas, e nem num monitor de 1440px cabiam: situação
+                e ações ficavam fora da tela. Contrato e descrição viraram
+                subtítulo permanente de número e cliente; emissão e pagamento
+                só entram quando há largura para eles.
+
+                Abaixo de 768px a linha vira duas células: identificação à
+                esquerda e valor + vencimento + situação à direita. */}
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>
-                    <SortButton
-                      label="Número"
-                      column="number"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Cliente"
-                      column="client"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">Contrato</TableHead>
-                  <TableHead className="hidden lg:table-cell">Descrição</TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Valor"
-                      column="amount"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
-                      label="Emissão"
-                      column="issueDate"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortButton
-                      label="Vencimento"
-                      column="dueDate"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden md:table-cell">Pagamento</TableHead>
-                  <TableHead>Situação</TableHead>
-                  <TableHead className="w-[100px] text-right">Ações</TableHead>
+                  <SortableHead
+                    label="Número"
+                    column="number"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                  />
+                  <SortableHead
+                    label="Cliente"
+                    column="client"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden md:table-cell"
+                  />
+                  <SortableHead
+                    label="Valor"
+                    column="amount"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="text-right max-md:pr-4 md:text-left"
+                  />
+                  <SortableHead
+                    label="Emissão"
+                    column="issueDate"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden 2xl:table-cell"
+                  />
+                  <SortableHead
+                    label="Vencimento"
+                    column="dueDate"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden xl:table-cell"
+                  />
+                  <TableHead className="hidden wide:table-cell">Pagamento</TableHead>
+                  <TableHead className="hidden md:table-cell">Situação</TableHead>
+                  <TableHead className="hidden w-[100px] text-right xl:table-cell">Ações</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -375,32 +406,38 @@ export function InvoicesListPage() {
                     className="cursor-pointer"
                     onClick={() => navigate(`/faturas/${invoice.id}`)}
                   >
-                    <TableCell className="whitespace-nowrap font-medium">
-                      {invoice.number}
-                    </TableCell>
-
                     <TableCell>
-                      <p className="max-w-[180px] truncate text-foreground">
-                        {invoice.client.name}
+                      {/* Link de verdade: torna a ficha alcançável por teclado
+                          e leitor de tela. stopPropagation evita navegar duas
+                          vezes (link + clique da linha). */}
+                      <Link
+                        to={`/faturas/${invoice.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="whitespace-nowrap font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {invoice.number}
+                      </Link>
+                      <p className="hidden whitespace-nowrap text-xs text-muted-foreground md:block">
+                        {invoice.contract ? invoice.contract.number : 'Avulsa'}
                       </p>
-                      <p className="max-w-[180px] truncate text-xs text-muted-foreground lg:hidden">
+                      {/* Abaixo de 768px o cliente não tem coluna própria:
+                          aparece aqui em vez de sumir. */}
+                      <p className="text-sm text-foreground md:hidden">{invoice.client.name}</p>
+                      <p className="line-clamp-1 text-xs text-muted-foreground md:hidden">
                         {invoice.description ?? 'Sem descrição'}
                       </p>
                     </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
-                      {invoice.contract ? (
-                        invoice.contract.number
-                      ) : (
-                        <span className="text-muted-foreground">Avulsa</span>
-                      )}
+                    <TableCell className="hidden md:table-cell">
+                      <p className="max-w-[200px] truncate text-foreground">
+                        {invoice.client.name}
+                      </p>
+                      <p className="max-w-[200px] truncate text-xs text-muted-foreground">
+                        {invoice.description ?? 'Sem descrição'}
+                      </p>
                     </TableCell>
 
-                    <TableCell className="hidden max-w-[220px] truncate lg:table-cell">
-                      {invoice.description ?? <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="whitespace-nowrap text-right tabular-nums max-md:pr-4 md:text-left">
                       {formatCurrency(invoice.amount)}
                       {/* Pagamento parcial precisa aparecer aqui: sem isso, uma
                           fatura de R$ 1.200 com R$ 800 pagos parece intocada. */}
@@ -410,17 +447,27 @@ export function InvoicesListPage() {
                             resta {formatCurrency(invoice.outstanding)}
                           </p>
                         )}
+                      {/* O vencimento só ganha coluna a partir de 1280px. */}
+                      <p className="text-xs text-muted-foreground xl:hidden">
+                        vence {formatDate(invoice.dueDate)}
+                      </p>
+                      <div className="mt-1 md:hidden">
+                        <InvoiceStatusBadge
+                          status={invoice.status}
+                          daysOverdue={invoice.daysOverdue}
+                        />
+                      </div>
                     </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
+                    <TableCell className="hidden whitespace-nowrap 2xl:table-cell">
                       {formatDate(invoice.issueDate)}
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
                       {formatDate(invoice.dueDate)}
                     </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap md:table-cell">
+                    <TableCell className="hidden whitespace-nowrap wide:table-cell">
                       {invoice.lastPaymentDate ? (
                         formatDate(invoice.lastPaymentDate)
                       ) : (
@@ -428,14 +475,21 @@ export function InvoicesListPage() {
                       )}
                     </TableCell>
 
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <InvoiceStatusBadge
                         status={invoice.status}
                         daysOverdue={invoice.daysOverdue}
                       />
+                      {/* Sem a coluna de pagamento (abaixo de 1440px), a data
+                          em que o dinheiro entrou vem junto da situação. */}
+                      {invoice.lastPaymentDate && (
+                        <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground wide:hidden">
+                          pago em {formatDate(invoice.lastPaymentDate)}
+                        </p>
+                      )}
                     </TableCell>
 
-                    <TableCell className="text-right">
+                    <TableCell className="hidden text-right xl:table-cell">
                       {/* stopPropagation: sem ele, clicar em Editar abriria a
                           ficha (clique da linha) e logo em seguida a edição. */}
                       <div
@@ -501,14 +555,14 @@ function DateRangeField({
   return (
     <div className="space-y-1.5">
       <Label className="text-xs">{label}</Label>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:items-center">
         <Input
           type="date"
           value={from}
           onChange={(event) => onChange(event.target.value, to)}
           aria-label={`${label} — de`}
         />
-        <span className="text-xs text-muted-foreground">até</span>
+        <span className="hidden text-xs text-muted-foreground min-[480px]:inline">até</span>
         <Input
           type="date"
           value={to}
@@ -517,108 +571,6 @@ function DateRangeField({
           aria-label={`${label} — até`}
         />
       </div>
-    </div>
-  );
-}
-
-/**
- * Faixa de valor.
- *
- * O estado local existe porque o campo é mascarado: a URL guarda `1500.00` e a
- * tela mostra `1.500,00`. Sem o intermediário, cada tecla reescreveria a URL e
- * a máscara brigaria com o cursor.
- */
-function AmountRangeField({
-  min,
-  max,
-  onChange,
-}: {
-  min: string;
-  max: string;
-  onChange: (min: string, max: string) => void;
-}) {
-  const [minInput, setMinInput] = useState(toCurrencyInput(min));
-  const [maxInput, setMaxInput] = useState(toCurrencyInput(max));
-
-  useEffect(() => {
-    setMinInput(toCurrencyInput(min));
-    setMaxInput(toCurrencyInput(max));
-  }, [min, max]);
-
-  function commit(nextMin: string, nextMax: string): void {
-    onChange(parseCurrency(nextMin), parseCurrency(nextMax));
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">Valor</Label>
-      <div className="flex items-center gap-2">
-        <Input
-          inputMode="numeric"
-          placeholder="mínimo"
-          className="tabular-nums"
-          value={minInput}
-          onChange={(event) => setMinInput(maskCurrency(event.target.value))}
-          onBlur={() => commit(minInput, maxInput)}
-          aria-label="Valor mínimo"
-        />
-        <span className="text-xs text-muted-foreground">até</span>
-        <Input
-          inputMode="numeric"
-          placeholder="máximo"
-          className="tabular-nums"
-          value={maxInput}
-          onChange={(event) => setMaxInput(maskCurrency(event.target.value))}
-          onBlur={() => commit(minInput, maxInput)}
-          aria-label="Valor máximo"
-        />
-      </div>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<InvoiceListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<InvoiceListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-56" />
-          </div>
-          <Skeleton className="hidden h-4 w-24 sm:block" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-      ))}
     </div>
   );
 }

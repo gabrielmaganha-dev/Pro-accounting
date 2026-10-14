@@ -1,13 +1,11 @@
-import { Settings, ShieldCheck } from 'lucide-react';
+import { lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { AppLayout } from '@/layouts/AppLayout';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { DashboardPage } from '@/pages/DashboardPage';
-import { FinancePage } from '@/pages/FinancePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
-import { PlaceholderPage } from '@/pages/PlaceholderPage';
 import { ClientDetailPage } from '@/pages/clients/ClientDetailPage';
 import { ClientFormPage } from '@/pages/clients/ClientFormPage';
 import { ClientsListPage } from '@/pages/clients/ClientsListPage';
@@ -20,6 +18,36 @@ import { InvoicesListPage } from '@/pages/invoices/InvoicesListPage';
 import { PaymentsListPage } from '@/pages/payments/PaymentsListPage';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
 import { PublicOnlyRoute } from '@/routes/PublicOnlyRoute';
+
+/**
+ * Telas carregadas sob demanda.
+ *
+ * Financeiro traz a biblioteca de gráficos (cerca de 400 kB); as outras quatro
+ * são telas de administração que a maioria das sessões nem abre. Importadas de
+ * forma estática, todas iam no pacote inicial — o que a tela de LOGIN baixava
+ * antes de a pessoa conseguir digitar a senha.
+ *
+ * As telas do dia a dia (clientes, contratos, faturas, pagamentos) continuam
+ * no pacote principal: são para onde quase toda sessão vai, e carregá-las sob
+ * demanda só trocaria um download por uma espera a cada clique.
+ *
+ * O `.then` adapta a exportação nomeada ao formato que `lazy` espera.
+ */
+const FinancePage = lazy(() =>
+  import('@/pages/FinancePage').then((module) => ({ default: module.FinancePage })),
+);
+const ReportsPage = lazy(() =>
+  import('@/pages/reports/ReportsPage').then((module) => ({ default: module.ReportsPage })),
+);
+const AuditPage = lazy(() =>
+  import('@/pages/audit/AuditPage').then((module) => ({ default: module.AuditPage })),
+);
+const SettingsPage = lazy(() =>
+  import('@/pages/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })),
+);
+const UsersListPage = lazy(() =>
+  import('@/pages/users/UsersListPage').then((module) => ({ default: module.UsersListPage })),
+);
 
 /**
  * Mapa de rotas.
@@ -80,32 +108,27 @@ export function AppRoutes() {
             <Route path="/financeiro" element={<FinancePage />} />
           </Route>
 
-          <Route
-            path="/configuracoes"
-            element={
-              <PlaceholderPage
-                title="Configurações"
-                description="Preferências do sistema e dados do seu perfil."
-                icon={Settings}
-                stage="próxima etapa"
-              />
-            }
-          />
+          {/* Relatórios — aberto a todos os perfis, e SEM guard de perfil de
+              propósito: o funcionário usa os relatórios de clientes, contratos
+              e faturas. Os financeiros são omitidos do catálogo para ele e
+              recusados pela API se pedidos pelo id. */}
+          <Route path="/relatorios" element={<ReportsPage />} />
+
+          {/* Configurações — aberta a todos os perfis. As abas de empresa,
+              identidade visual e preferências ficam em modo leitura para o
+              funcionário; as rotas de escrita exigem ADMIN na API. */}
+          <Route path="/configuracoes" element={<SettingsPage />} />
 
           {/* Guard adicional: só administradores. O menu já esconde o item,
-              mas alguém que digite a URL direto também precisa ser barrado. */}
+              mas alguém que digite a URL direto também precisa ser barrado —
+              e mesmo passando daqui, as rotas /api/users/* exigem o perfil. */}
           <Route element={<ProtectedRoute roles={['ADMIN']} />}>
-            <Route
-              path="/usuarios"
-              element={
-                <PlaceholderPage
-                  title="Usuários"
-                  description="Gerenciamento de usuários e perfis de acesso."
-                  icon={ShieldCheck}
-                  stage="próxima etapa"
-                />
-              }
-            />
+            <Route path="/usuarios" element={<UsersListPage />} />
+
+            {/* Auditoria — mostra o que TODOS fizeram, com IP e navegador. É
+                supervisão, não rotina, e a API recusa a leitura para quem não
+                for administrador. */}
+            <Route path="/auditoria" element={<AuditPage />} />
           </Route>
         </Route>
       </Route>

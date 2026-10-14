@@ -42,6 +42,28 @@ async function main(): Promise<void> {
     return;
   }
 
+  /**
+   * Em produção, a senha de exemplo é recusada.
+   *
+   * `Admin@123456` está escrita no `.env.example` e no README, publicados no
+   * repositório. Criar o administrador de um sistema real com ela é deixar a
+   * porta aberta com a chave na fechadura — e é exatamente o que acontece
+   * quando alguém copia o exemplo e esquece de editar esta linha.
+   */
+  if (env.isProduction && password === 'Admin@123456') {
+    console.error(
+      [
+        '',
+        '  Seed cancelado: ADMIN_PASSWORD ainda é a senha de exemplo.',
+        '',
+        '   Defina uma senha própria antes de criar o administrador de produção.',
+        '',
+      ].join('\n'),
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const normalizedEmail = email.trim().toLowerCase();
 
   const existing = await prisma.user.findUnique({
@@ -60,7 +82,11 @@ async function main(): Promise<void> {
     console.info('  Administrador já existia — nome/perfil reconciliados.');
     console.info(`   E-mail: ${normalizedEmail}`);
     console.info('   A senha NÃO foi alterada.');
-    console.info('   Para recriar do zero (APAGA TODOS OS DADOS): npm run db:reset');
+    // `db:reset` é comando de desenvolvimento: não existe na imagem de
+    // produção, e lá ninguém deve ser convidado a apagar o banco.
+    if (!env.isProduction) {
+      console.info('   Para recriar do zero (APAGA TODOS OS DADOS): npm run db:reset');
+    }
     console.info('');
     return;
   }
@@ -74,6 +100,15 @@ async function main(): Promise<void> {
       password: passwordHash,
       role: UserRole.ADMIN,
       active: true,
+      /**
+       * Em produção a senha do seed é provisória: o primeiro login abre o
+       * diálogo de troca obrigatória, o mesmo usado no reset de acesso.
+       *
+       * A senha inicial passou por um arquivo de configuração — foi digitada,
+       * talvez copiada, e fica no `.env` do servidor. A definitiva só existe na
+       * cabeça de quem a escolheu. Em desenvolvimento isso seria só atrito.
+       */
+      mustChangePassword: env.isProduction,
     },
     select: { id: true, name: true, email: true, role: true },
   });
@@ -83,9 +118,13 @@ async function main(): Promise<void> {
   console.info(`   Nome:   ${admin.name}`);
   console.info(`   E-mail: ${admin.email}`);
   console.info(`   Perfil: ${admin.role}`);
-  console.info('   Senha:  a definida em ADMIN_PASSWORD (backend/.env)');
+  console.info('   Senha:  a definida em ADMIN_PASSWORD');
   console.info('');
-  console.info('   Troque esta senha no primeiro login em ambiente real.');
+  console.info(
+    env.isProduction
+      ? '   O sistema vai exigir a troca desta senha no primeiro login.'
+      : '   Troque esta senha no primeiro login em ambiente real.',
+  );
   console.info('');
 }
 

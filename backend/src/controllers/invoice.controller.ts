@@ -13,6 +13,7 @@ import {
   suggestNextNumber,
   updateInvoice,
 } from '../services/invoice.service.js';
+import { recordAudit } from '../services/audit.service.js';
 import { ok } from '../utils/api-response.js';
 import { AppError } from '../utils/app-error.js';
 import { validate } from '../utils/validate.js';
@@ -85,6 +86,14 @@ export async function createInvoiceController(request: FastifyRequest, reply: Fa
 
   const invoice = await createInvoice(input, user);
 
+  await recordAudit(user, {
+    action: 'CREATE',
+    entity: 'INVOICE',
+    entityId: invoice.id,
+    entityLabel: invoice.number,
+    metadata: { clientId: invoice.clientId, valor: invoice.amount, vencimento: invoice.dueDate },
+  });
+
   // 201 com o recurso criado: a interface precisa do id para redirecionar
   // direto à ficha da fatura recém-emitida.
   return reply.status(201).send(ok(invoice));
@@ -97,6 +106,14 @@ export async function updateInvoiceController(request: FastifyRequest, reply: Fa
   const input = validate(updateInvoiceSchema, request.body);
 
   const invoice = await updateInvoice(id, input, user);
+
+  await recordAudit(user, {
+    action: 'UPDATE',
+    entity: 'INVOICE',
+    entityId: invoice.id,
+    entityLabel: invoice.number,
+    metadata: { camposEnviados: Object.keys(input) },
+  });
 
   return reply.status(200).send(ok(invoice));
 }
@@ -112,6 +129,14 @@ export async function updateInvoiceStatusController(
 
   const invoice = await setInvoiceStatus(id, status, user);
 
+  await recordAudit(user, {
+    action: status === 'CANCELLED' ? 'CANCEL' : 'REOPEN',
+    entity: 'INVOICE',
+    entityId: invoice.id,
+    entityLabel: invoice.number,
+    metadata: { situacao: status },
+  });
+
   return reply.status(200).send(ok(invoice));
 }
 
@@ -123,6 +148,25 @@ export async function registerPaymentController(request: FastifyRequest, reply: 
 
   const invoice = await registerPayment(id, input, user);
 
+  // Dinheiro entrando é o evento mais sensível do sistema: valor, data e forma
+  // ficam na trilha, não só "houve um pagamento".
+  await recordAudit(user, {
+    action: 'PAYMENT_REGISTERED',
+    entity: 'PAYMENT',
+    entityId: invoice.id,
+    entityLabel: invoice.number,
+    metadata: {
+      // `toFixed(2)` porque o validador devolve `number` e a trilha guarda
+      // dinheiro no mesmo formato canônico do resto do sistema: string de duas
+      // casas. Gravar `250` onde todo lugar mostra "250.00" obrigaria quem lê a
+      // auditoria a conferir se o valor está completo ou truncado.
+      valor: input.amount.toFixed(2),
+      data: input.paymentDate,
+      forma: input.paymentMethod,
+      situacaoDaFatura: invoice.status,
+    },
+  });
+
   return reply.status(201).send(ok(invoice));
 }
 
@@ -133,14 +177,33 @@ export async function removePaymentController(request: FastifyRequest, reply: Fa
 
   const invoice = await removePayment(id, paymentId, user);
 
+  await recordAudit(user, {
+    action: 'PAYMENT_REVERSED',
+    entity: 'PAYMENT',
+    entityId: paymentId,
+    entityLabel: invoice.number,
+    metadata: { faturaId: invoice.id, situacaoDaFatura: invoice.status },
+  });
+
   return reply.status(200).send(ok(invoice));
 }
 
 /** DELETE /api/invoices/:id */
 export async function deleteInvoiceController(request: FastifyRequest, reply: FastifyReply) {
+  const user = requireUser(request);
   const { id } = validate(invoiceIdParamSchema, request.params);
 
+  const invoice = await getInvoiceById(id);
+
   await deleteInvoice(id);
+
+  await recordAudit(user, {
+    action: 'DELETE',
+    entity: 'INVOICE',
+    entityId: id,
+    entityLabel: invoice.number,
+    metadata: { valor: invoice.amount },
+  });
 
   // 204 sem corpo: não há o que devolver sobre um registro que deixou de existir.
   return reply.status(204).send();

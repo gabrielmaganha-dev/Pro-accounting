@@ -103,11 +103,14 @@ function normalize(error: FastifyError | Error): NormalizedError {
   const fastifyError = error as FastifyError;
 
   // 5. Limite de requisições (@fastify/rate-limit).
+  //
+  //    O plugin não recebe `errorResponseBuilder` de propósito: o envelope é
+  //    montado aqui, como para todo o resto. Ver a nota em app.ts.
   if (fastifyError.statusCode === 429) {
     return {
       statusCode: 429,
       code: 'TOO_MANY_REQUESTS',
-      message: 'Muitas tentativas em pouco tempo. Aguarde um minuto e tente novamente.',
+      message: 'Muitas tentativas em pouco tempo. Aguarde e tente novamente.',
       unexpected: false,
     };
   }
@@ -155,6 +158,23 @@ function normalize(error: FastifyError | Error): NormalizedError {
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
     const normalized = normalize(error);
+
+    /**
+     * Segundos restantes no 429.
+     *
+     * Vêm do cabeçalho `retry-after`, que o próprio plugin de rate limit já
+     * definiu na resposta. Ler dali em vez de recalcular evita que a mensagem
+     * e o cabeçalho discordem — e é a informação que falta para a interface
+     * dizer "tente de novo em 40 segundos" em vez de um "aguarde" vago.
+     */
+    if (normalized.statusCode === 429) {
+      const retryAfter = reply.getHeader('retry-after');
+      const seconds = Number(retryAfter);
+
+      if (Number.isFinite(seconds) && seconds > 0) {
+        normalized.message = `Muitas tentativas em pouco tempo. Tente novamente em ${Math.ceil(seconds)} segundo(s).`;
+      }
+    }
 
     if (normalized.unexpected) {
       request.log.error(

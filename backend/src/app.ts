@@ -20,10 +20,48 @@ import { registerRoutes } from './routes/index.js';
  * A ORDEM dos registros abaixo é significativa — está comentada em cada passo.
  */
 export async function buildApp(): Promise<FastifyInstance> {
+  /**
+   * Campos que NUNCA aparecem no log, em qualquer nível do objeto registrado.
+   *
+   * O Fastify não registra corpo de requisição por padrão, então hoje nenhuma
+   * senha chega ao log por esse caminho. Esta lista existe para o dia em que
+   * alguém ligar o log de corpo para depurar um problema — e, sem ela,
+   * descobrir semanas depois que gravou a senha de todos os usuários em texto
+   * puro no arquivo de log. Defesa contra o futuro, não contra o presente.
+   *
+   * `remove: true` apaga a chave em vez de trocá-la por "[Redacted]": um log
+   * que mostra `password: "[Redacted]"` ainda revela que havia uma senha ali.
+   */
+  const redactPaths = [
+    'req.headers.authorization',
+    'req.headers.cookie',
+    'req.body.password',
+    'req.body.currentPassword',
+    'req.body.newPassword',
+    'req.body.confirmPassword',
+    'req.body.logo',
+    'password',
+    'currentPassword',
+    'newPassword',
+    'temporaryPassword',
+    'token',
+    'jwt',
+  ];
+
   const app = Fastify({
+    /**
+     * Desenvolvimento: linha colorida e legível no terminal (pino-pretty).
+     *
+     * Produção: JSON puro, uma linha por evento, na saída padrão. Não há
+     * arquivo de log nem rotação aqui de propósito — quem guarda, rotaciona e
+     * envia o log é a plataforma (o driver de log do Docker, no compose de
+     * produção). Um processo que escreve o próprio arquivo dentro do container
+     * perde o log junto com o container.
+     */
     logger: env.isDevelopment
       ? {
-          level: 'info',
+          level: env.LOG_LEVEL,
+          redact: { paths: redactPaths, remove: true },
           transport: {
             target: 'pino-pretty',
             options: {
@@ -33,11 +71,13 @@ export async function buildApp(): Promise<FastifyInstance> {
             },
           },
         }
-      : { level: 'info' },
+      : { level: env.LOG_LEVEL, redact: { paths: redactPaths, remove: true } },
 
     // Necessário atrás de proxy/nginx para que o rate limit enxergue o IP real
     // do cliente, e não o do proxy (que bloquearia todo mundo de uma vez).
-    trustProxy: true,
+    // Configurável porque, com a API exposta direto, confiar no cabeçalho
+    // deixaria qualquer um forjar o próprio IP — ver TRUST_PROXY em env.ts.
+    trustProxy: env.trustProxy,
 
     // 1 MB. Sem teto, um POST gigante consome memória do processo.
     bodyLimit: 1_048_576,
@@ -46,10 +86,21 @@ export async function buildApp(): Promise<FastifyInstance> {
   // 1. Cabeçalhos de segurança primeiro, para que valham inclusive nas
   //    respostas de erro geradas pelos middlewares seguintes.
   await app.register(helmet, {
-    // CSP protege documentos HTML; esta API só devolve JSON.
+    // CSP protege documentos HTML; esta API só devolve JSON. A política de
+    // conteúdo da interface é definida por quem serve o HTML (nginx).
     contentSecurityPolicy: false,
     // O frontend roda em outra porta (5173) durante o desenvolvimento.
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+  });
+
+  // Nada do que a API devolve pode ficar em cache de navegador ou de proxy:
+  // são dados financeiros de um usuário autenticado. Sem o cabeçalho, um proxy
+  // intermediário — ou o botão "voltar" num computador compartilhado depois do
+  // logout — poderia reapresentar uma resposta antiga.
+  app.addHook('onSend', async (_request, reply) => {
+    if (!reply.hasHeader('cache-control')) {
+      void reply.header('cache-control', 'no-store');
+    }
   });
 
   // 2. CORS. Lista branca explícita — nunca `origin: true`, que aceitaria
@@ -81,17 +132,25 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // 3. Limite global de requisições. Rotas sensíveis apertam esse valor
   //    individualmente via `config.rateLimit` (ver auth.routes.ts).
+  /**
+   * SEM `errorResponseBuilder`, e isso é uma correção.
+   *
+   * A versão anterior devolvia aqui o envelope pronto — um objeto simples
+   * `{ success, error }`. O plugin o LANÇA como erro, e o handler central,
+   * recebendo um objeto que não é `Error` e não tem `statusCode`, caía no ramo
+   * final e respondia **500**. Resultado: a proteção contra força bruta
+   * funcionava (a 11ª tentativa era bloqueada) mas se anunciava como falha do
+   * servidor, o cliente não tinha como tratar "aguarde" e o log enchia de linha
+   * de ERRO para tráfego que era só alguém insistindo.
+   *
+   * Sem o builder, o plugin lança o erro padrão dele, com `statusCode: 429`, e
+   * o handler central já sabe traduzi-lo para o envelope da API — inclusive com
+   * os segundos restantes, lidos do cabeçalho `retry-after`. O envelope passa a
+   * ter UM dono, em vez de dois que discordavam.
+   */
   await app.register(rateLimit, {
     max: 300,
     timeWindow: '1 minute',
-    // Mantém o mesmo envelope de erro do resto da API.
-    errorResponseBuilder: (_request, context) => ({
-      success: false,
-      error: {
-        code: 'TOO_MANY_REQUESTS',
-        message: `Muitas tentativas. Tente novamente em ${Math.ceil(context.ttl / 1000)} segundo(s).`,
-      },
-    }),
   });
 
   // 4. JWT. A validade dos tokens é definida aqui uma única vez, e não em cada

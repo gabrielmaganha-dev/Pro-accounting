@@ -2,6 +2,7 @@ import { ArrowLeft, ReceiptText } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { InvoiceForm } from '@/components/invoices/InvoiceForm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -9,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useClient } from '@/hooks/use-clients';
 import { useContract } from '@/hooks/use-contracts';
 import { useCreateInvoice, useInvoice, useUpdateInvoice } from '@/hooks/use-invoices';
+import { ApiError } from '@/services/api';
 import type { InvoicePayload } from '@/types/invoice';
 
 /**
@@ -41,7 +43,7 @@ export function InvoiceFormPage() {
     isEditing ? undefined : (presetContract?.clientId ?? presetClientId),
   );
 
-  const { data: invoice, isPending, isError } = useInvoice(id);
+  const { data: invoice, isPending, isError, error, refetch, isFetching } = useInvoice(id);
   const createMutation = useCreateInvoice();
   const updateMutation = useUpdateInvoice(id ?? '');
 
@@ -64,7 +66,31 @@ export function InvoiceFormPage() {
     navigate(isEditing && id ? `/faturas/${id}` : '/faturas');
   }
 
-  if (isEditing && isError) {
+  // Só o 404 significa que o registro não existe. Rede fora, 500 e limite de
+  // requisições são falhas passageiras: dizer "não existe ou foi removido"
+  // nesses casos faria o usuário achar que o cadastro foi apagado.
+  // `!invoice`: com o registro já carregado, uma falha do refetch em segundo
+  // plano NÃO pode desmontar o formulário — levaria embora o que o usuário já
+  // digitou. A tela de erro só entra quando não há nada para editar.
+  if (
+    isEditing &&
+    isError &&
+    !invoice &&
+    !(error instanceof ApiError && error.status === 404)
+  ) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar a fatura"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
+      </Card>
+    );
+  }
+
+  if (isEditing && isError && !invoice) {
     return (
       <Card>
         <EmptyState

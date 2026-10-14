@@ -63,6 +63,45 @@ enum PaymentMethod {
   OTHER
 }
 
+/// Ações registradas na auditoria.
+///
+/// A lista é fechada de propósito: um campo de texto livre viraria
+/// "atualizou", "Atualizou", "update" e "UPDATE" na mesma tabela, e qualquer
+/// filtro por ação passaria a mentir.
+enum AuditAction {
+  LOGIN
+  /// Tentativa de login recusada. Registrada para que uma sequência delas
+  /// contra a mesma conta seja visível.
+  LOGIN_FAILED
+  LOGOUT
+  CREATE
+  UPDATE
+  ACTIVATE
+  DEACTIVATE
+  CANCEL
+  REOPEN
+  DELETE
+  PAYMENT_REGISTERED
+  PAYMENT_REVERSED
+  ROLE_CHANGED
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+  SETTINGS_UPDATED
+  EXPORT
+}
+
+/// Entidade sobre a qual a ação incidiu.
+enum AuditEntity {
+  SESSION
+  USER
+  CLIENT
+  CONTRACT
+  INVOICE
+  PAYMENT
+  SETTINGS
+  REPORT
+}
+
 /// Tipo de evento registrado no histórico do cliente.
 enum ClientHistoryAction {
   CREATED
@@ -88,6 +127,21 @@ enum InvoiceHistoryAction {
   SETTLED
 }
 
+/// Assunto da notificação. O texto exibido é montado no serviço, não aqui —
+/// mudar a redação de um alerta não pode exigir migração de banco.
+enum NotificationType {
+  INVOICE_OVERDUE
+  INVOICE_DUE_SOON
+  CONTRACT_EXPIRING
+}
+
+/// Urgência, para ordenar a lista e escolher a cor do selo.
+enum NotificationSeverity {
+  CRITICAL
+  WARNING
+  INFO
+}
+
 // -----------------------------------------------------------------------------
 // Usuários
 // -----------------------------------------------------------------------------
@@ -110,16 +164,175 @@ model User {
   /// referenciável pelos pagamentos que registrou.
   active Boolean @default(true)
 
+  /// Verdadeiro enquanto a senha em uso for a temporária gerada por um
+  /// administrador ao resetar o acesso. É o que impede que uma senha conhecida
+  /// por terceiros vire a senha definitiva da conta.
+  mustChangePassword Boolean @default(false) @map("must_change_password")
+
+  /// Instante da última troca de senha. Tokens assinados ANTES deste instante
+  /// são recusados no middleware de autenticação — é o que faz "resetar
+  /// acesso" encerrar a sessão de quem já estava logado, em vez de deixá-la
+  /// viva até o token expirar sozinho.
+  passwordChangedAt DateTime @default(now()) @map("password_changed_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   registeredPayments Payment[]        @relation("PaymentRegisteredBy")
   clientHistory      ClientHistory[]  @relation("ClientHistoryAuthor")
   invoiceHistory     InvoiceHistory[] @relation("InvoiceHistoryAuthor")
+  notifications      Notification[]
+  settingsUpdates    Settings[]       @relation("SettingsUpdatedBy")
+  auditLogs          AuditLog[]       @relation("AuditLogAuthor")
 
   @@index([role])
   @@index([active])
   @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// Auditoria
+// -----------------------------------------------------------------------------
+
+/// Trilha de auditoria do sistema — quem fez o quê, quando e de onde.
+///
+/// DIFERENÇA EM RELAÇÃO A `client_history` E `invoice_history`: aqueles são o
+/// histórico de NEGÓCIO de um registro, exibido na ficha dele, campo a campo.
+/// Este é o registro de SEGURANÇA do sistema inteiro: inclui login, logout,
+/// tentativa recusada, exportação de dados e alteração de configuração — coisas
+/// que não pertencem à ficha de nenhum cliente. Os dois coexistem porque
+/// respondem a perguntas diferentes: "o que mudou nesta fatura" e "o que esta
+/// pessoa andou fazendo no sistema".
+///
+/// A tabela é APPEND-ONLY. Não há rota de edição nem de exclusão, e isso é o
+/// que dá algum valor a ela: uma trilha que o próprio administrador pode
+/// reescrever não serve de prova de nada.
+model AuditLog {
+  id String @id @default(cuid())
+
+  /// Autor. Nulo apenas quando não havia sessão — uma tentativa de login
+  /// recusada, por exemplo.
+  userId String? @map("user_id")
+
+  /// CÓPIA do nome e do e-mail no instante do registro.
+  ///
+  /// Não é redundância com a relação acima: `userId` é `SetNull`, então excluir
+  /// um usuário deixaria todas as linhas dele anônimas. Uma trilha de auditoria
+  /// que perde o "quem" ao remover a conta não serve para nada — e é justamente
+  /// a conta de quem fez algo errado que alguém tentaria apagar.
+  userName  String? @map("user_name") @db.VarChar(120)
+  userEmail String? @map("user_email") @db.VarChar(180)
+
+  action AuditAction
+  entity AuditEntity
+
+  /// Id do registro afetado. Nulo em ações que não incidem sobre um registro
+  /// (login, logout).
+  entityId String? @map("entity_id")
+
+  /// Identificação legível do registro — número da fatura, nome do cliente.
+  /// Guardada porque o id sozinho não diz nada a quem lê a trilha, e o registro
+  /// pode ter sido excluído depois.
+  entityLabel String? @map("entity_label") @db.VarChar(180)
+
+  /// Endereço de origem. 45 caracteres cobrem IPv6 completo.
+  ip String? @db.VarChar(45)
+
+  /// Navegador/cliente de origem, truncado. Ajuda a distinguir acesso pela
+  /// interface de chamada direta à API.
+  userAgent String? @map("user_agent") @db.VarChar(255)
+
+  /// Dados relevantes da alteração: campos alterados, valor anterior e novo,
+  /// motivo. JSON porque o formato varia por ação — forçar colunas fixas
+  /// obrigaria a migrar a tabela a cada ação nova.
+  ///
+  /// NUNCA recebe senha, hash ou token. Ver `sanitizeMetadata` no serviço.
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation("AuditLogAuthor", fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// Serve à consulta padrão da tela: as mais recentes primeiro.
+  @@index([createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([entity, entityId])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+// Configurações do sistema
+// -----------------------------------------------------------------------------
+
+/// Configuração do sistema — LINHA ÚNICA.
+///
+/// O id é fixo (`singleton`) e o acesso é sempre por `upsert` nesse id. É o que
+/// torna impossível existirem duas configurações concorrentes: sem a chave
+/// fixa, uma corrida entre dois administradores salvando ao mesmo tempo criaria
+/// duas linhas e o sistema passaria a ler ora uma, ora outra.
+///
+/// Por que uma tabela e não um arquivo `.env`: estes valores são alterados pelo
+/// próprio usuário, pela interface, sem reiniciar o servidor. O `.env` continua
+/// com o que é de INFRAESTRUTURA (banco, segredo do JWT) — o que muda por
+/// decisão de quem opera o sistema mora aqui.
+model Settings {
+  /// Sempre "singleton". Ver o comentário do modelo.
+  id String @id @default("singleton")
+
+  // --- Empresa ---------------------------------------------------------------
+  companyName    String  @default("Pro Accounting") @map("company_name") @db.VarChar(180)
+  /// Somente dígitos, como em `clients.cpf_cnpj` — mesma razão: busca e
+  /// unicidade não podem depender de máscara.
+  companyCnpj    String? @map("company_cnpj") @db.VarChar(14)
+  companyEmail   String? @map("company_email") @db.VarChar(180)
+  companyPhone   String? @map("company_phone") @db.VarChar(11)
+  companyWebsite String? @map("company_website") @db.VarChar(200)
+
+  // Endereço desmembrado, pelo mesmo motivo do cadastro de clientes: emissão
+  // fiscal exige os campos separados.
+  companyZipCode      String? @map("company_zip_code") @db.VarChar(8)
+  companyStreet       String? @map("company_street") @db.VarChar(180)
+  companyNumber       String? @map("company_number") @db.VarChar(20)
+  companyComplement   String? @map("company_complement") @db.VarChar(120)
+  companyNeighborhood String? @map("company_neighborhood") @db.VarChar(120)
+  companyCity         String? @map("company_city") @db.VarChar(120)
+  companyState        String? @map("company_state") @db.VarChar(2)
+
+  // --- Identidade visual -----------------------------------------------------
+  /// Logotipo como data URL (`data:image/png;base64,...`).
+  ///
+  /// Guardado no banco, e não em arquivo, porque é UM arquivo pequeno de uma
+  /// linha única: gravá-lo aqui dispensa diretório de upload, rota de arquivo
+  /// estático, backup separado e limpeza de órfãos. O custo é a coluna crescer
+  /// alguns KB — irrelevante para uma tabela de uma linha. Se um dia houver
+  /// upload de documento por cliente, aí sim vale um storage de verdade.
+  logo String? @db.Text
+
+  /// Cores em hexadecimal `#RRGGBB`. A interface deriva delas a rampa inteira
+  /// de tons; só o tom base é guardado.
+  primaryColor   String @default("#2563EB") @map("primary_color") @db.VarChar(7)
+  secondaryColor String @default("#0D9488") @map("secondary_color") @db.VarChar(7)
+
+  // --- Preferências gerais ---------------------------------------------------
+  /// Antecedência, em dias, para avisar que uma fatura vai vencer.
+  dueSoonDays Int @default(7) @map("due_soon_days")
+
+  currency   String @default("BRL") @db.VarChar(3)
+  timeZone   String @default("America/Sao_Paulo") @map("time_zone") @db.VarChar(64)
+  dateFormat String @default("dd/MM/yyyy") @map("date_format") @db.VarChar(20)
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+  /// Quem salvou por último. SetNull para a configuração sobreviver à remoção
+  /// do usuário que a alterou.
+  updatedBy String? @map("updated_by")
+
+  updatedByUser User? @relation("SettingsUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// Única chave estrangeira do projeto que estava sem índice. Uma tabela de
+  /// uma linha não sente a diferença, mas a regra vale para todas.
+  @@index([updatedBy])
+  @@map("settings")
 }
 
 // -----------------------------------------------------------------------------
@@ -169,9 +382,10 @@ model Client {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  contracts Contract[]
-  invoices  Invoice[]
-  history   ClientHistory[]
+  contracts     Contract[]
+  invoices      Invoice[]
+  history       ClientHistory[]
+  notifications Notification[]
 
   @@index([status])
   @@index([name])
@@ -250,14 +464,19 @@ model Contract {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  client   Client    @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  invoices Invoice[]
+  client        Client         @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  invoices      Invoice[]
+  notifications Notification[]
 
   @@index([clientId])
   @@index([status])
   @@index([endDate])
   /// Serve à consulta "contratos vencendo": filtra status e ordena por término.
   @@index([status, endDate])
+  /// Serve à "atividade recente" do painel e à ordenação padrão da listagem:
+  /// os mais novos primeiro. Sem o índice, cada abertura do painel lia e
+  /// ordenava a tabela inteira para devolver oito linhas.
+  @@index([createdAt])
   @@map("contracts")
 }
 
@@ -291,8 +510,9 @@ model Invoice {
 
   client   Client           @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  payments Payment[]
-  history  InvoiceHistory[]
+  payments      Payment[]
+  history       InvoiceHistory[]
+  notifications Notification[]
 
   @@index([clientId])
   @@index([contractId])
@@ -301,6 +521,10 @@ model Invoice {
   /// Serve ao painel e à listagem: "pendentes vencendo/vencidas por data".
   @@index([status, dueDate])
   @@index([issueDate])
+  /// Serve à "atividade recente" do painel e à ordenação padrão da listagem:
+  /// os mais novos primeiro. Sem o índice, cada abertura do painel lia e
+  /// ordenava a tabela inteira para devolver oito linhas.
+  @@index([createdAt])
   @@map("invoices")
 }
 
@@ -372,5 +596,85 @@ model Payment {
   @@index([invoiceId])
   @@index([registeredBy])
   @@index([paymentDate])
+  /// Serve à "atividade recente" do painel e à ordenação padrão da listagem:
+  /// os mais novos primeiro. Sem o índice, cada abertura do painel lia e
+  /// ordenava a tabela inteira para devolver oito linhas.
+  @@index([createdAt])
   @@map("payments")
+}
+
+// -----------------------------------------------------------------------------
+// Notificações
+// -----------------------------------------------------------------------------
+
+/// Alerta interno, persistido, com estado de leitura POR USUÁRIO.
+///
+/// ── Por que uma linha por usuário, e não uma linha compartilhada ────────────
+///
+/// "Lida" é um fato de cada pessoa. Com uma linha só para todo o escritório, o
+/// funcionário que abrisse o sino marcaria o alerta como lido e o administrador
+/// nunca o veria. A alternativa — uma linha compartilhada mais uma tabela de
+/// leituras — economizaria registros, mas toda consulta precisaria de um JOIN e
+/// a contagem de não lidas viraria um NOT EXISTS.
+///
+/// O custo é a multiplicação: N usuários × M condições. Num escritório contábil
+/// isso são dezenas de linhas, não milhões. Em troca, marcar como lida é um
+/// UPDATE simples e cada linha já tem um DESTINATÁRIO — que é exatamente o que
+/// um canal de e-mail ou WhatsApp vai precisar saber para quem enviar.
+///
+/// ── Deduplicação ────────────────────────────────────────────────────────────
+///
+/// `dedupeKey` é `<tipo>:<id da entidade>:<id do usuário>` e tem índice ÚNICO.
+/// É o banco que garante a ausência de duplicatas, não a lógica da varredura:
+/// duas execuções simultâneas da geração não conseguem criar o mesmo alerta
+/// duas vezes, porque a segunda esbarra na constraint.
+model Notification {
+  id String @id @default(cuid())
+
+  /// Destinatário. Cascade: conta removida leva junto as notificações dela,
+  /// que não têm valor de auditoria (o histórico das faturas tem).
+  userId String @map("user_id")
+
+  type     NotificationType
+  severity NotificationSeverity
+
+  title   String @db.VarChar(180)
+  message String @db.Text
+
+  /// Chave de deduplicação. Ver o comentário do modelo.
+  dedupeKey String @unique @map("dedupe_key") @db.VarChar(160)
+
+  /// Rota da interface que resolve o alerta (ex.: `/faturas/<id>`).
+  link String? @db.VarChar(200)
+
+  // Referências ao assunto. Todas opcionais porque tipos futuros podem não se
+  // referir a nenhuma delas. SetNull em vez de Cascade: apagar a fatura não
+  // deve apagar o aviso antes que a varredura o resolva naturalmente.
+  invoiceId  String? @map("invoice_id")
+  contractId String? @map("contract_id")
+  clientId   String? @map("client_id")
+
+  /// Nulo = não lida. Guardar o INSTANTE em vez de um booleano responde
+  /// "quando esta pessoa viu isso", que um `read: true` jogaria fora.
+  readAt DateTime? @map("read_at")
+
+  /// Canais por onde a notificação já saiu. Hoje apenas `IN_APP`; e-mail,
+  /// WhatsApp e push acrescentam o próprio identificador aqui, o que impede
+  /// reenvio ao reexecutar a varredura.
+  deliveredChannels String[] @map("delivered_channels")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  invoice  Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  client   Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// Serve à consulta do sino: as não lidas de um usuário, mais recentes antes.
+  @@index([userId, readAt, createdAt])
+  @@index([type])
+  @@index([invoiceId])
+  @@index([contractId])
+  @@index([clientId])
+  @@map("notifications")
 }

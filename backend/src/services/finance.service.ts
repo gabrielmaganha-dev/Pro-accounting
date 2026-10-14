@@ -12,6 +12,15 @@ import {
   utcToIsoDate,
 } from '../utils/date.js';
 import { effectiveInvoiceStatus, fromCents, toCents } from '../utils/invoice-status.js';
+import { toCsvFile } from '../reports/formatters/csv.js';
+import { toPdfFile } from '../reports/formatters/pdf.js';
+import { toXlsxFile } from '../reports/formatters/xlsx.js';
+import type {
+  ReportColumn,
+  ReportDocument,
+  ReportFile,
+  ReportFormat,
+} from '../reports/types.js';
 import type {
   FinanceEntriesQuery,
   FinanceExportQuery,
@@ -575,28 +584,47 @@ export async function getFinanceEntries(query: FinanceEntriesQuery) {
 // Exportação
 // ---------------------------------------------------------------------------
 
-export interface ExportResult {
-  filename: string;
-  contentType: string;
-  body: string;
-}
+export type ExportResult = ReportFile;
 
 /**
- * Exporta os lançamentos do período.
+ * Colunas da exportação financeira, no vocabulário do núcleo de relatórios.
  *
- * A montagem das LINHAS é separada da SERIALIZAÇÃO de propósito: acrescentar
- * Excel ou PDF depois é escrever um segundo serializador sobre a mesma matriz,
- * sem tocar em consulta nem em regra de negócio. Por isso `buildExportRows`
- * devolve `string[][]` — uma matriz neutra, que não sabe em que formato vai
- * acabar.
+ * O `kind` é o que permite ao mesmo descritor servir aos três formatos: o CSV
+ * formata em pt-BR, o Excel grava número de verdade para a coluna somar, e o
+ * PDF alinha à direita. Antes isto era uma lista de cabeçalhos soltos e uma
+ * função que montava strings — que funcionava só para CSV.
+ */
+const FINANCE_EXPORT_COLUMNS: ReportColumn[] = [
+  { key: 'clientName', label: 'Cliente', kind: 'text', width: 24 },
+  { key: 'clientDocument', label: 'CPF/CNPJ', kind: 'text', width: 13 },
+  { key: 'number', label: 'Fatura', kind: 'text', width: 13 },
+  { key: 'contractNumber', label: 'Contrato', kind: 'text', width: 11 },
+  { key: 'issueDate', label: 'Emissão', kind: 'date', width: 9 },
+  { key: 'dueDate', label: 'Vencimento', kind: 'date', width: 9 },
+  { key: 'amount', label: 'Valor', kind: 'money', width: 11 },
+  { key: 'paidAmount', label: 'Recebido', kind: 'money', width: 11 },
+  { key: 'outstanding', label: 'Em aberto', kind: 'money', width: 11 },
+  { key: 'paymentDate', label: 'Pagamento', kind: 'date', width: 9 },
+  { key: 'paymentMethod', label: 'Forma', kind: 'text', width: 11 },
+  { key: 'statusLabel', label: 'Situação', kind: 'text', width: 10 },
+];
+
+const EXPORT_WRITERS: Record<ReportFormat, typeof toCsvFile> = {
+  csv: toCsvFile,
+  xlsx: toXlsxFile,
+  pdf: toPdfFile,
+};
+
+/**
+ * Exporta os lançamentos do período nos três formatos.
+ *
+ * A serialização vive em `reports/formatters/`, compartilhada com os
+ * relatórios. Esta função não sabe o que é um CSV nem um PDF — monta um
+ * `ReportDocument` e entrega ao formatador escolhido. Foi assim que o Excel e
+ * o PDF, que aqui respondiam 501, passaram a funcionar sem uma linha de
+ * serialização nova neste arquivo.
  */
 export async function exportFinanceEntries(query: FinanceExportQuery): Promise<ExportResult> {
-  if (query.format !== 'csv') {
-    throw AppError.notImplemented(
-      `A exportação em ${query.format.toUpperCase()} ainda não está disponível. ` +
-        'Use o formato CSV, que abre no Excel e no Google Planilhas.',
-    );
-  }
 
   const range = resolvePeriod(query.period, query.from, query.to);
   const reference = today();
@@ -625,79 +653,55 @@ export async function exportFinanceEntries(query: FinanceExportQuery): Promise<E
     select: ENTRY_SELECT,
   });
 
-  const rows = buildExportRows(invoices.map((invoice) => toEntryDto(invoice, reference)));
+  const entries = invoices.map((invoice) => toEntryDto(invoice, reference));
 
-  return {
-    filename: `financeiro-${range.from}-a-${range.to}.csv`,
-    contentType: 'text/csv; charset=utf-8',
-    body: toCsv(rows),
-  };
-}
+  const billedCents = entries.reduce((sum, entry) => sum + toCents(entry.amount), 0);
+  const receivedCents = entries.reduce((sum, entry) => sum + toCents(entry.paidAmount), 0);
 
-type FinanceEntry = ReturnType<typeof toEntryDto>;
-
-const EXPORT_HEADER = [
-  'Cliente',
-  'CPF/CNPJ',
-  'Fatura',
-  'Contrato',
-  'Emissão',
-  'Vencimento',
-  'Valor',
-  'Recebido',
-  'Em aberto',
-  'Pagamento',
-  'Forma',
-  'Situação',
-];
-
-function buildExportRows(entries: FinanceEntry[]): string[][] {
-  return [
-    EXPORT_HEADER,
-    ...entries.map((entry) => [
-      entry.clientName,
-      entry.clientDocument,
-      entry.number,
-      entry.contractNumber ?? '',
-      formatBr(entry.issueDate),
-      formatBr(entry.dueDate),
-      // Valores em formato brasileiro: o arquivo é aberto no Excel pt-BR, que
-      // interpretaria "1234.56" como texto e quebraria qualquer soma.
-      toBrlNumber(entry.amount),
-      toBrlNumber(entry.paidAmount),
-      toBrlNumber(entry.outstanding),
-      entry.paymentDate ? formatBr(entry.paymentDate) : '',
-      entry.paymentMethod ?? '',
-      INVOICE_STATUS_LABELS[entry.status] ?? entry.status,
-    ]),
-  ];
-}
-
-/** `1234.56` -> `1234,56`. Sem separador de milhar, que confundiria o Excel. */
-function toBrlNumber(value: string): string {
-  return value.replace('.', ',');
-}
-
-/**
- * Serializa a matriz em CSV.
- *
- * Duas decisões que fazem o arquivo abrir certo no Excel brasileiro:
- *
- *  • **Ponto e vírgula** como separador. O Excel em português usa a vírgula
- *    como decimal, então um CSV separado por vírgula quebra toda linha que
- *    tenha dinheiro.
- *  • **BOM UTF-8** no início. Sem ele, o Excel abre o arquivo em ANSI e
- *    "João" vira "JoÃ£o".
- */
-function toCsv(rows: string[][]): string {
-  const escape = (cell: string): string => {
-    // Aspas duplas, ponto e vírgula ou quebra de linha exigem o campo entre
-    // aspas, com as aspas internas duplicadas.
-    if (/["\n;]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`;
-    return cell;
+  const document: ReportDocument = {
+    title: 'Financeiro — lançamentos do período',
+    subtitle: `${range.label} · ${total} ${total === 1 ? 'fatura' : 'faturas'}`,
+    columns: FINANCE_EXPORT_COLUMNS,
+    rows: entries.map((entry) => ({
+      clientName: entry.clientName,
+      clientDocument: entry.clientDocument,
+      number: entry.number,
+      contractNumber: entry.contractNumber,
+      issueDate: entry.issueDate,
+      dueDate: entry.dueDate,
+      amount: entry.amount,
+      paidAmount: entry.paidAmount,
+      outstanding: entry.outstanding,
+      paymentDate: entry.paymentDate,
+      paymentMethod: entry.paymentMethod,
+      statusLabel: INVOICE_STATUS_LABELS[entry.status] ?? entry.status,
+    })),
+    summary: [
+      { label: 'Faturado', value: `R$ ${fromCents(billedCents)}`, kind: 'money' },
+      { label: 'Recebido', value: `R$ ${fromCents(receivedCents)}`, kind: 'money' },
+      {
+        label: 'Em aberto',
+        value: `R$ ${fromCents(Math.max(billedCents - receivedCents, 0))}`,
+        kind: 'money',
+      },
+    ],
+    generatedAt: new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+      .format(new Date())
+      .replace(',', ' às'),
   };
 
-  const content = rows.map((row) => row.map(escape).join(';')).join('\r\n');
+  // A anotação é necessária porque o wrapper de validação do período usa
+  // genéricos e o TypeScript perde o tipo literal do enum no caminho. O valor
+  // em si é garantido pelo `z.enum` do schema.
+  const writer = EXPORT_WRITERS[query.format as ReportFormat];
 
-  return `\uFEFF${content}`;
+  return writer(document, `financeiro-${range.from}-a-${range.to}`);
 }
+

@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ClientForm } from '@/components/clients/ClientForm';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useClient, useCreateClient, useUpdateClient } from '@/hooks/use-clients';
+import { ApiError } from '@/services/api';
 import type { ClientPayload } from '@/types/client';
 
 /**
@@ -22,7 +24,7 @@ export function ClientFormPage() {
 
   const isEditing = Boolean(id);
 
-  const { data: client, isPending, isError } = useClient(id);
+  const { data: client, isPending, isError, error, refetch, isFetching } = useClient(id);
   const createMutation = useCreateClient();
   const updateMutation = useUpdateClient(id ?? '');
 
@@ -47,7 +49,31 @@ export function ClientFormPage() {
     navigate(isEditing && id ? `/clientes/${id}` : '/clientes');
   }
 
-  if (isEditing && isError) {
+  // Só o 404 significa que o registro não existe. Rede fora, 500 e limite de
+  // requisições são falhas passageiras: dizer "não existe ou foi removido"
+  // nesses casos faria o usuário achar que o cadastro foi apagado.
+  // `!client`: com o registro já carregado, uma falha do refetch em segundo
+  // plano NÃO pode desmontar o formulário — levaria embora o que o usuário já
+  // digitou. A tela de erro só entra quando não há nada para editar.
+  if (
+    isEditing &&
+    isError &&
+    !client &&
+    !(error instanceof ApiError && error.status === 404)
+  ) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o cliente"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
+      </Card>
+    );
+  }
+
+  if (isEditing && isError && !client) {
     return (
       <Card>
         <EmptyState

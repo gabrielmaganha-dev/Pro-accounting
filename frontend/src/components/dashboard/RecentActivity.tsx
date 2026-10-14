@@ -95,7 +95,11 @@ export function RecentActivity({ activity, isLoading }: RecentActivityProps) {
 
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">{entry.title}</p>
-                  <p className="truncate text-xs text-muted-foreground">{entry.detail}</p>
+                  {/* Duas linhas no celular: em uma só, sobrava "FAT-2026-00033 ·
+                      Transp…" e o nome do cliente ficava ilegível. */}
+                  <p className="line-clamp-2 break-words text-xs text-muted-foreground sm:line-clamp-1">
+                    {entry.detail}
+                  </p>
                 </div>
 
                 <div className="shrink-0 text-right">

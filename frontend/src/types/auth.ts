@@ -5,6 +5,13 @@ export interface AuthUser {
   name: string;
   email: string;
   role: UserRole;
+
+  /**
+   * Senha provisória em uso — definida por um administrador no cadastro ou num
+   * reset de acesso. Enquanto verdadeiro, a aplicação cobra a troca logo após
+   * o login.
+   */
+  mustChangePassword: boolean;
 }
 
 export interface LoginCredentials {

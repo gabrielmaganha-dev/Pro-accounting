@@ -10,6 +10,7 @@ import {
   setClientStatus,
   updateClient,
 } from '../services/client.service.js';
+import { recordAudit } from '../services/audit.service.js';
 import { ok } from '../utils/api-response.js';
 import { AppError } from '../utils/app-error.js';
 import { validate } from '../utils/validate.js';
@@ -76,6 +77,14 @@ export async function createClientController(request: FastifyRequest, reply: Fas
 
   const client = await createClient(input, user);
 
+  await recordAudit(user, {
+    action: 'CREATE',
+    entity: 'CLIENT',
+    entityId: client.id,
+    entityLabel: client.name,
+    metadata: { cpfCnpj: client.cpfCnpj },
+  });
+
   // 201 com o recurso criado: a interface precisa do id para redirecionar
   // direto à página de detalhes do cliente recém-cadastrado.
   return reply.status(201).send(ok(client));
@@ -89,6 +98,17 @@ export async function updateClientController(request: FastifyRequest, reply: Fas
 
   const client = await updateClient(id, input, user);
 
+  // O metadata leva os CAMPOS ENVIADOS, não o antes/depois de cada um: o
+  // detalhe campo a campo já vive em `client_history`, exibido na ficha. Aqui
+  // interessa quem mexeu, quando e de onde.
+  await recordAudit(user, {
+    action: 'UPDATE',
+    entity: 'CLIENT',
+    entityId: client.id,
+    entityLabel: client.name,
+    metadata: { camposEnviados: Object.keys(input) },
+  });
+
   return reply.status(200).send(ok(client));
 }
 
@@ -100,14 +120,34 @@ export async function updateClientStatusController(request: FastifyRequest, repl
 
   const client = await setClientStatus(id, status, user);
 
+  await recordAudit(user, {
+    action: status === 'ACTIVE' ? 'ACTIVATE' : 'DEACTIVATE',
+    entity: 'CLIENT',
+    entityId: client.id,
+    entityLabel: client.name,
+  });
+
   return reply.status(200).send(ok(client));
 }
 
 /** DELETE /api/clients/:id */
 export async function deleteClientController(request: FastifyRequest, reply: FastifyReply) {
+  const user = requireUser(request);
   const { id } = validate(clientIdParamSchema, request.params);
 
+  // Lê o nome ANTES de excluir: depois não há de onde tirá-lo, e uma linha de
+  // auditoria que diz apenas "excluiu o cliente cmu94..." não serve a ninguém.
+  const client = await getClientById(id);
+
   await deleteClient(id);
+
+  await recordAudit(user, {
+    action: 'DELETE',
+    entity: 'CLIENT',
+    entityId: id,
+    entityLabel: client.name,
+    metadata: { cpfCnpj: client.cpfCnpj },
+  });
 
   // 204 sem corpo: não há o que devolver sobre um registro que deixou de existir.
   return reply.status(204).send();

@@ -1,4 +1,6 @@
 import {
+  BarChart3,
+  ScrollText,
   CircleDollarSign,
   FileText,
   LayoutDashboard,
@@ -39,6 +41,10 @@ export const NAV_ITEMS: NavItem[] = [
   // inadimplência agregada. O funcionário vê o financeiro de cada cliente e
   // contrato nas fichas deles — o que não vê é a soma de tudo.
   { label: 'Financeiro', to: '/financeiro', icon: Wallet, roles: ['ADMIN'] },
+  // Sem `roles`: todo perfil tem relatórios. O catálogo é que muda — o
+  // funcionário não recebe os financeiros.
+  { label: 'Relatórios', to: '/relatorios', icon: BarChart3 },
   { label: 'Usuários', to: '/usuarios', icon: ShieldCheck, roles: ['ADMIN'] },
+  { label: 'Auditoria', to: '/auditoria', icon: ScrollText, roles: ['ADMIN'] },
   { label: 'Configurações', to: '/configuracoes', icon: Settings },
 ];

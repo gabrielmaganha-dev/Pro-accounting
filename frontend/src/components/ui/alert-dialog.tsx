@@ -2,6 +2,7 @@ import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
 import * as React from 'react';
 
 import { buttonVariants } from '@/components/ui/button';
+import { useReturnFocus } from '@/hooks/use-return-focus';
 import { cn } from '@/lib/utils';
 
 /**
@@ -36,20 +37,57 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <AlertDialogPortal>
-    <AlertDialogOverlay />
-    <AlertDialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border bg-card p-6 shadow-lg',
-        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-        className,
-      )}
-      {...props}
-    />
-  </AlertDialogPortal>
-));
+>(({ className, onOpenAutoFocus, onCloseAutoFocus, ...props }, ref) => {
+  const { rememberOpener, restoreFocus } = useReturnFocus();
+
+  return (
+    <AlertDialogPortal>
+      <AlertDialogOverlay />
+      <AlertDialogPrimitive.Content
+        ref={ref}
+        // Ao fechar, o foco volta para o botão que abriu o diálogo — ver
+        // hooks/use-return-focus.ts. Os handlers de quem usa o componente
+        // rodam primeiro e podem cancelar com preventDefault().
+        onOpenAutoFocus={(event) => {
+          rememberOpener();
+          onOpenAutoFocus?.(event);
+
+          // O Radix põe o foco inicial no botão de cancelar — e, num diálogo
+          // sem `AlertDialogCancel` (detalhe da auditoria, troca obrigatória
+          // de senha), não põe em lugar nenhum: o foco ficava atrás do
+          // diálogo, e o Tab percorria a página encoberta. Depois de o Radix
+          // decidir, se nada dentro do diálogo recebeu o foco, ele vai para o
+          // primeiro controle.
+          const content = event.currentTarget as HTMLElement;
+          queueMicrotask(() => {
+            if (content.contains(document.activeElement)) return;
+
+            const first = content.querySelector<HTMLElement>(
+              'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]',
+            );
+            (first ?? content).focus({ preventScroll: true });
+          });
+        }}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          restoreFocus(event);
+        }}
+        className={cn(
+          'fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border bg-card p-5 shadow-lg sm:p-6',
+          // Altura limitada à tela, com rolagem interna. Sem isto, um diálogo
+          // mais alto que o aparelho — ou qualquer um deles com o teclado
+          // virtual aberto — perdia os botões para fora da tela, sem como
+          // alcançá-los. `dvh` (e não `vh`) desconta as barras do navegador
+          // móvel.
+          'max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          className,
+        )}
+        {...props}
+      />
+    </AlertDialogPortal>
+  );
+});
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
 
 function AlertDialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

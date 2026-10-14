@@ -11,6 +11,7 @@ import type {
   UpdateContractInput,
 } from '../validators/contract.validator.js';
 import { summarizeInvoices } from './invoice-summary.service.js';
+import { requestResweep } from './notification-sweep-state.js';
 
 /** Rótulos em português, usados nas mensagens de erro. */
 const STATUS_LABELS: Record<ContractStatus, string> = {
@@ -223,6 +224,8 @@ export async function createContract(input: CreateContractInput) {
     include: { client: { select: CLIENT_SELECT } },
   });
 
+  requestResweep();
+
   return toContractDto(contract);
 }
 
@@ -330,6 +333,8 @@ export async function updateContract(
     include: { client: { select: CLIENT_SELECT } },
   });
 
+  requestResweep();
+
   return toContractDto(updated);
 }
 
@@ -373,6 +378,8 @@ export async function setContractStatus(id: string, status: ContractStatus) {
     data,
     include: { client: { select: CLIENT_SELECT } },
   });
+
+  requestResweep();
 
   return toContractDto(updated);
 }
@@ -434,6 +441,8 @@ export async function renewContract(id: string, input: RenewContractInput) {
     include: { client: { select: CLIENT_SELECT } },
   });
 
+  requestResweep();
+
   return toContractDto(updated);
 }
 
@@ -482,6 +491,8 @@ export async function deleteContract(id: string) {
   }
 
   await prisma.contract.delete({ where: { id } });
+
+  requestResweep();
 }
 
 // ---------------------------------------------------------------------------

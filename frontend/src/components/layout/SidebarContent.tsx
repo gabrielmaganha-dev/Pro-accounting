@@ -1,7 +1,9 @@
+import { X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 import { Logo } from '@/components/brand/Logo';
 import { NAV_ITEMS } from '@/components/layout/nav-items';
+import { SheetClose } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 
@@ -26,8 +28,20 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
 
   return (
     <div className="flex h-full flex-col bg-brand-900 text-white">
-      <div className="flex h-16 shrink-0 items-center border-b border-white/10 px-5">
+      <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-white/10 px-5">
         <Logo variant="lockup" size={32} className="text-white" />
+
+        {/* Só na gaveta do celular (é quando `onNavigate` existe). Tocar fora
+            já fecha o menu, mas isso não é óbvio — e quem usa leitor de tela
+            não tem "fora" para tocar. */}
+        {onNavigate && (
+          <SheetClose
+            className="-mr-2 flex size-10 items-center justify-center rounded-md text-brand-100 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-900"
+            aria-label="Fechar menu"
+          >
+            <X className="size-5" aria-hidden="true" />
+          </SheetClose>
+        )}
       </div>
 
       <nav
@@ -41,7 +55,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
             onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                'group relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+                'group relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors touch:py-3',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-900',
                 isActive
                   ? 'bg-brand-700 text-white'
@@ -69,8 +83,10 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
       </nav>
 
       <div className="shrink-0 border-t border-white/10 px-5 py-4">
-        <p className="text-xs text-brand-200">Pro Accounting</p>
-        <p className="text-xs text-brand-300">Gestão contábil · v1.0</p>
+        {/* Tons 100/200, não 200/300: o 300 sobre o fundo do menu ficava em
+            4.12:1, abaixo do mínimo de 4.5:1 para texto pequeno. */}
+        <p className="text-xs font-medium text-brand-100">Pro Accounting</p>
+        <p className="text-xs text-brand-200">Gestão contábil · v1.0</p>
       </div>
     </div>
   );

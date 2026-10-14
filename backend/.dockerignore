@@ -1,0 +1,25 @@
+# O que NÃO entra no contexto de build da imagem da API.
+
+# Segredos. Um `COPY . .` distraído levaria o .env para dentro de uma camada
+# da imagem — e de lá para qualquer registro onde ela fosse publicada.
+.env
+.env.*
+!.env.example
+
+# Reinstalados e recompilados dentro da imagem, para a plataforma certa.
+# O node_modules do Windows traz binários que não rodam em Linux.
+node_modules
+dist
+
+# Sem utilidade em produção
+.omc
+.git
+.gitignore
+.vscode
+coverage
+*.log
+*.tsbuildinfo
+eslint.config.js
+.prettierrc.json
+Dockerfile
+.dockerignore

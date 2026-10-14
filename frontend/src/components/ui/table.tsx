@@ -56,7 +56,10 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      'h-11 whitespace-nowrap px-4 text-left align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground',
+      // No celular o respiro entre colunas cai para 12px — são os 16px que
+      // faltavam para a coluna de valor caber sem rolagem. As bordas externas
+      // seguem em 16px para alinhar com o resto do card.
+      'h-11 whitespace-nowrap px-3 text-left align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground first:pl-4 last:pr-4 sm:px-4',
       className,
     )}
     {...props}
@@ -68,7 +71,11 @@ const TableCell = React.forwardRef<
   HTMLTableCellElement,
   React.TdHTMLAttributes<HTMLTableCellElement>
 >(({ className, ...props }, ref) => (
-  <td ref={ref} className={cn('px-4 py-3 align-middle', className)} {...props} />
+  <td
+    ref={ref}
+    className={cn('px-3 py-3 align-middle first:pl-4 last:pr-4 sm:px-4', className)}
+    {...props}
+  />
 ));
 TableCell.displayName = 'TableCell';
 

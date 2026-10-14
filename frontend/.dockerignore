@@ -1,0 +1,22 @@
+# O que NÃO entra no contexto de build da imagem da interface.
+
+# O .env de desenvolvimento aponta a API para http://localhost:3333. Se entrasse
+# no build, esse endereço iria embutido no JavaScript publicado.
+# O .env.production FICA: é ele que define VITE_API_URL=/api, e não tem segredo.
+.env
+.env.local
+.env.*.local
+
+# Reinstalados e recompilados dentro da imagem, para a plataforma certa.
+node_modules
+dist
+
+# Sem utilidade no build
+.git
+.gitignore
+.vscode
+coverage
+*.log
+*.tsbuildinfo
+Dockerfile
+.dockerignore

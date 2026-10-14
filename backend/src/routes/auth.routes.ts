@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 
-import { loginController, meController } from '../controllers/auth.controller.js';
+import {
+  loginController,
+  logoutController,
+  meController,
+} from '../controllers/auth.controller.js';
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -32,4 +36,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
    * coloca na requisição.
    */
   app.get('/auth/me', { preHandler: [app.authenticate] }, meController);
+
+  /**
+   * POST /api/auth/logout — registra a saída na trilha de auditoria.
+   *
+   * Exige token porque só faz sentido encerrar uma sessão que existe, e é o
+   * token que diz de quem ela é.
+   */
+  app.post('/auth/logout', { preHandler: [app.authenticate] }, logoutController);
 }

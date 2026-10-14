@@ -9,7 +9,6 @@ import {
   Phone,
   Plus,
   ReceiptText,
-  SlidersHorizontal,
   Trash2,
   UserCheck,
   UserX,
@@ -19,8 +18,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { Pagination } from '@/components/common/Pagination';
+import { SummaryTile } from '@/components/common/SummaryTile';
+import { TableSkeleton } from '@/components/common/TableSkeleton';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
+import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +34,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -61,6 +63,7 @@ import {
 } from '@/hooks/use-clients';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { ApiError } from '@/services/api';
 import {
   CLIENT_HISTORY_ACTION_LABELS,
   type ClientHistoryEntry,
@@ -80,7 +83,7 @@ export function ClientDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const { data: client, isPending, isError } = useClient(id);
+  const { data: client, isPending, isError, error, refetch, isFetching } = useClient(id);
   const statusMutation = useUpdateClientStatus();
   const deleteMutation = useDeleteClient();
 
@@ -91,7 +94,27 @@ export function ClientDetailPage() {
 
   if (isPending) return <DetailSkeleton />;
 
-  if (isError || !client) {
+  // Só o 404 significa que o registro não existe. Rede fora, 500 e limite de
+  // requisições são falhas passageiras: dizer "não encontrado" nesses casos
+  // faria o usuário achar que o registro foi apagado.
+  // `!client`: só troca a tela por erro quando não há nada em cache. Um refetch
+  // em segundo plano que falha (rede oscilou, limite de requisições) deixa a
+  // consulta em erro COM os dados anteriores — e nesse caso o conteúdo válido
+  // continua na tela.
+  if (isError && !client && !(error instanceof ApiError && error.status === 404)) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o cliente"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
+      </Card>
+    );
+  }
+
+  if (!client) {
     return (
       <Card>
         <EmptyState
@@ -243,10 +266,10 @@ export function ClientDetailPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Número</TableHead>
-                    <TableHead>Serviço</TableHead>
-                    <TableHead>Valor mensal</TableHead>
-                    <TableHead className="hidden md:table-cell">Vigência</TableHead>
-                    <TableHead>Situação</TableHead>
+                    <TableHead className="hidden sm:table-cell">Serviço</TableHead>
+                    <TableHead className="text-right max-sm:pr-4 sm:text-left">Valor mensal</TableHead>
+                    <TableHead className="hidden xl:table-cell">Vigência</TableHead>
+                    <TableHead className="hidden sm:table-cell">Situação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -256,17 +279,39 @@ export function ClientDetailPage() {
                       className="cursor-pointer"
                       onClick={() => navigate(`/contratos/${contract.id}`)}
                     >
-                      <TableCell className="font-medium">{contract.number}</TableCell>
-                      <TableCell>{contract.serviceType}</TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums">
+                      <TableCell>
+                        {/* Link de verdade: torna o contrato alcançável por
+                            teclado e leitor de tela. stopPropagation evita
+                            navegar duas vezes (link + clique da linha). */}
+                        <Link
+                          to={`/contratos/${contract.id}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className="whitespace-nowrap font-medium text-foreground underline-offset-2 hover:underline"
+                        >
+                          {contract.number}
+                        </Link>
+                        <p className="text-xs text-muted-foreground sm:hidden">
+                          {contract.serviceType}
+                        </p>
+                        {/* A vigência só ganha coluna a partir de 1280px. */}
+                        <p className="whitespace-nowrap text-xs text-muted-foreground xl:hidden">
+                          {formatDate(contract.startDate)} →{' '}
+                          {contract.endDate ? formatDate(contract.endDate) : 'indeterminado'}
+                        </p>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">{contract.serviceType}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right tabular-nums max-sm:pr-4 sm:text-left">
                         {formatCurrency(contract.monthlyValue)}
                         <span className="text-xs text-muted-foreground"> /mês</span>
+                        <div className="mt-1 sm:hidden">
+                          <ContractStatusBadge status={contract.status} />
+                        </div>
                       </TableCell>
-                      <TableCell className="hidden whitespace-nowrap text-sm md:table-cell">
+                      <TableCell className="hidden whitespace-nowrap text-sm xl:table-cell">
                         {formatDate(contract.startDate)} →{' '}
                         {contract.endDate ? formatDate(contract.endDate) : 'indeterminado'}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <ContractStatusBadge status={contract.status} />
                       </TableCell>
                     </TableRow>
@@ -379,37 +424,6 @@ function formatStreetLine(client: { street: string | null; number: string | null
   return client.number ? `${client.street}, ${client.number}` : client.street;
 }
 
-function invoiceBadgeVariant(status: string) {
-  if (status === 'PAID') return 'success' as const;
-  if (status === 'PENDING') return 'warning' as const;
-  if (status === 'OVERDUE') return 'danger' as const;
-  return 'neutral' as const;
-}
-
-function SummaryTile({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className={cn('mt-1 truncate text-lg font-semibold tabular-nums', tone ?? 'text-foreground')}>
-          {value}
-        </p>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
 function Field({
   label,
   value,
@@ -452,7 +466,11 @@ function InvoicesTab({ clientId }: { clientId: string }) {
   const [status, setStatus] = useState<EffectiveInvoiceStatus | undefined>(undefined);
   const [page, setPage] = useState(1);
 
-  const { data, isPending, isFetching } = useClientInvoices(clientId, status, page);
+  const { data, isPending, isFetching, isError, error, refetch } = useClientInvoices(
+    clientId,
+    status,
+    page,
+  );
 
   function changeStatus(value: string): void {
     setStatus(value === ALL_STATUS ? undefined : (value as EffectiveInvoiceStatus));
@@ -466,8 +484,10 @@ function InvoicesTab({ clientId }: { clientId: string }) {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Select value={status ?? ALL_STATUS} onValueChange={changeStatus}>
-          <SelectTrigger className="w-[180px]" aria-label="Filtrar faturas por situação">
-            <SlidersHorizontal className="size-4 text-muted-foreground" />
+          <SelectTrigger
+            className="min-w-[160px] flex-1 sm:w-[190px] sm:flex-none"
+            aria-label="Filtrar faturas por situação"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -489,11 +509,15 @@ function InvoicesTab({ clientId }: { clientId: string }) {
 
       <Card className="overflow-hidden">
         {isPending ? (
-          <div className="space-y-3 p-4">
-            {[0, 1, 2, 3].map((index) => (
-              <Skeleton key={index} className="h-12 w-full" />
-            ))}
-          </div>
+          <TableSkeleton rows={4} />
+        ) : isError && !data ? (
+          <ErrorState
+            title="Não foi possível carregar as faturas"
+            description={error instanceof Error ? error.message : undefined}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
+            compact
+          />
         ) : !data || data.items.length === 0 ? (
           <EmptyState
             title={status ? 'Nenhuma fatura nesta situação' : 'Nenhuma fatura'}
@@ -519,15 +543,18 @@ function InvoicesTab({ clientId }: { clientId: string }) {
           />
         ) : (
           <>
+            {/* Mesma regra das listagens: no celular a linha vira duas
+                células — número e vencimento à esquerda, valor e situação à
+                direita — em vez de empurrar colunas para fora da tela. */}
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Número</TableHead>
-                  <TableHead className="hidden md:table-cell">Descrição</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead className="hidden sm:table-cell">Em aberto</TableHead>
-                  <TableHead>Vencimento</TableHead>
-                  <TableHead>Situação</TableHead>
+                  <TableHead className="hidden xl:table-cell">Descrição</TableHead>
+                  <TableHead className="text-right max-sm:pr-4 sm:text-left">Valor</TableHead>
+                  <TableHead className="hidden md:table-cell">Em aberto</TableHead>
+                  <TableHead className="hidden sm:table-cell">Vencimento</TableHead>
+                  <TableHead className="hidden sm:table-cell">Situação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -537,28 +564,57 @@ function InvoicesTab({ clientId }: { clientId: string }) {
                     className="cursor-pointer"
                     onClick={() => navigate(`/faturas/${invoice.id}`)}
                   >
-                    <TableCell className="font-medium">
-                      {invoice.number}
+                    <TableCell>
+                      {/* Link de verdade: torna a fatura alcançável por teclado
+                          e leitor de tela. stopPropagation evita navegar duas
+                          vezes (link + clique da linha). */}
+                      <Link
+                        to={`/faturas/${invoice.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="whitespace-nowrap font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {invoice.number}
+                      </Link>
                       {invoice.contractNumber && (
                         <p className="text-xs text-muted-foreground">
                           Contrato {invoice.contractNumber}
                         </p>
                       )}
+                      {invoice.description && (
+                        <p className="text-xs text-muted-foreground xl:hidden">
+                          {invoice.description}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground sm:hidden">
+                        vence {formatDate(invoice.dueDate)}
+                      </p>
                     </TableCell>
 
-                    <TableCell className="hidden max-w-[240px] truncate md:table-cell">
+                    <TableCell className="hidden max-w-[240px] truncate xl:table-cell">
                       {invoice.description ?? '—'}
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="whitespace-nowrap text-right tabular-nums max-sm:pr-4 sm:text-left">
                       {formatCurrency(invoice.amount)}
+                      {/* Sem a coluna "Em aberto" (abaixo de 768px), o saldo de
+                          um pagamento parcial aparece aqui. */}
+                      {invoice.status !== 'CANCELLED' &&
+                        Number(invoice.outstanding) > 0 &&
+                        Number(invoice.outstanding) < Number(invoice.amount) && (
+                          <p className="text-xs text-amber-700 md:hidden">
+                            resta {formatCurrency(invoice.outstanding)}
+                          </p>
+                        )}
+                      <div className="mt-1 sm:hidden">
+                        <InvoiceStatusBadge status={invoice.status} />
+                      </div>
                     </TableCell>
 
                     {/* Saldo em aberto ao lado do valor de face: é o que revela
                         o pagamento parcial — uma fatura de R$ 1.200 com R$ 800
                         pagos continua "pendente", e sem esta coluna pareceria
                         intocada. */}
-                    <TableCell className="hidden whitespace-nowrap tabular-nums sm:table-cell">
+                    <TableCell className="hidden whitespace-nowrap tabular-nums md:table-cell">
                       {invoice.status === 'CANCELLED' ? (
                         <span className="text-muted-foreground">—</span>
                       ) : Number(invoice.outstanding) === 0 ? (
@@ -568,14 +624,12 @@ function InvoicesTab({ clientId }: { clientId: string }) {
                       )}
                     </TableCell>
 
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell className="hidden whitespace-nowrap sm:table-cell">
                       {formatDate(invoice.dueDate)}
                     </TableCell>
 
-                    <TableCell>
-                      <Badge variant={invoiceBadgeVariant(invoice.status)}>
-                        {INVOICE_STATUS_LABELS[invoice.status]}
-                      </Badge>
+                    <TableCell className="hidden sm:table-cell">
+                      <InvoiceStatusBadge status={invoice.status} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -599,7 +653,10 @@ function InvoicesTab({ clientId }: { clientId: string }) {
 
 function HistoryTab({ clientId }: { clientId: string }) {
   const [page, setPage] = useState(1);
-  const { data, isPending } = useClientHistory(clientId, page);
+  const { data, isPending, isError, error, refetch, isFetching } = useClientHistory(
+    clientId,
+    page,
+  );
 
   if (isPending) {
     return (
@@ -609,6 +666,22 @@ function HistoryTab({ clientId }: { clientId: string }) {
             <Skeleton key={index} className="h-12 w-full" />
           ))}
         </CardContent>
+      </Card>
+    );
+  }
+
+  // Falha não é "vazio": sem isto, um erro de rede mostrava "sem alterações" como
+  // se o registro nunca tivesse sido alterado.
+  if (isError && !data) {
+    return (
+      <Card>
+        <ErrorState
+          title="Não foi possível carregar o histórico"
+          description={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+          compact
+        />
       </Card>
     );
   }

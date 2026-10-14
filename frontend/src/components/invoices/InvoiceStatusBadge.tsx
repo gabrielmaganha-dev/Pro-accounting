@@ -38,7 +38,9 @@ export function InvoiceStatusBadge({ status, daysOverdue }: InvoiceStatusBadgePr
       <span aria-hidden="true" className={`size-1.5 rounded-full ${dot}`} />
       {INVOICE_STATUS_LABELS[status]}
       {showDays && (
-        <span className="font-normal opacity-80">
+        // Peso normal já separa o sufixo do rótulo. Com opacidade por cima, o
+        // número de dias — a parte que diz a urgência — caía a 4.35:1.
+        <span className="font-normal">
           · {daysOverdue} {daysOverdue === 1 ? 'dia' : 'dias'}
         </span>
       )}

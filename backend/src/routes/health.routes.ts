@@ -7,5 +7,11 @@ import { healthController } from '../controllers/health.controller.js';
  * monitor precisa conseguir verificar a API sem possuir credenciais.
  */
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/health', healthController);
+  /**
+   * `logLevel: 'warn'`: o orquestrador bate nesta rota a cada poucos segundos.
+   * No nível padrão seriam duas linhas de log por verificação — milhares por
+   * dia dizendo "200" — enterrando as linhas que importam. Com `warn`, a rota
+   * só aparece no log quando algo dá errado.
+   */
+  app.get('/health', { logLevel: 'warn' }, healthController);
 }

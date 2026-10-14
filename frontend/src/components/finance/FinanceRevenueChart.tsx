@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { ChartTooltip } from '@/components/dashboard/ChartTooltip';
-import { AXIS_COLOR, BAR_RADIUS, GRID_COLOR, SERIES_COLORS, TICK_STYLE } from '@/lib/chart-theme';
+import { AXIS_COLOR, BAR_RADIUS, GRID_COLOR, seriesColors, TICK_STYLE } from '@/lib/chart-theme';
 import type { RevenuePoint } from '@/types/finance';
 import { formatCurrency, formatCurrencyCompact, toChartNumber } from '@/utils/format';
 
@@ -26,6 +26,9 @@ interface FinanceRevenueChartProps {
  * período de 70 dias poderia render barras diárias com rótulos mensais.
  */
 export function FinanceRevenueChart({ data, granularity }: FinanceRevenueChartProps) {
+  // Resolvido por renderização: as cores vêm da identidade visual configurada.
+  const colors = seriesColors();
+
   const chartData = data.map((point) => ({
     label: point.label,
     value: toChartNumber(point.total),
@@ -74,7 +77,7 @@ export function FinanceRevenueChart({ data, granularity }: FinanceRevenueChartPr
                   {
                     label: 'Recebido',
                     value: formatCurrency(point.value),
-                    color: SERIES_COLORS.revenue,
+                    color: colors.revenue,
                   },
                   { label: 'Pagamentos', value: String(point.count) },
                 ]}
@@ -85,7 +88,7 @@ export function FinanceRevenueChart({ data, granularity }: FinanceRevenueChartPr
 
         <Bar
           dataKey="value"
-          fill={SERIES_COLORS.revenue}
+          fill={colors.revenue}
           radius={BAR_RADIUS}
           maxBarSize={granularity === 'day' ? 24 : 44}
           name="Recebido"

@@ -15,7 +15,7 @@ import {
   AXIS_COLOR,
   BAR_RADIUS_HORIZONTAL,
   GRID_COLOR,
-  SERIES_COLORS,
+  seriesColors,
   TICK_STYLE,
 } from '@/lib/chart-theme';
 import type { MethodSlice } from '@/types/finance';
@@ -47,6 +47,9 @@ interface ReceiptsByMethodChartProps {
  * a resposta deve estar na primeira linha.
  */
 export function ReceiptsByMethodChart({ data, total }: ReceiptsByMethodChartProps) {
+  // Resolvido por renderização: as cores vêm da identidade visual configurada.
+  const colors = seriesColors();
+
   const totalNumber = toChartNumber(total);
 
   const chartData = [...data]
@@ -106,7 +109,7 @@ export function ReceiptsByMethodChart({ data, total }: ReceiptsByMethodChartProp
                   {
                     label: 'Recebido',
                     value: formatCurrency(point.value),
-                    color: SERIES_COLORS.revenue,
+                    color: colors.revenue,
                   },
                   { label: 'Participação', value: `${point.share.toFixed(1)}%` },
                   { label: 'Lançamentos', value: String(point.count) },
@@ -118,7 +121,7 @@ export function ReceiptsByMethodChart({ data, total }: ReceiptsByMethodChartProp
 
         <Bar dataKey="value" radius={BAR_RADIUS_HORIZONTAL} maxBarSize={28}>
           {chartData.map((point) => (
-            <Cell key={point.label} fill={SERIES_COLORS.revenue} />
+            <Cell key={point.label} fill={colors.revenue} />
           ))}
 
           {/* Rótulo direto no fim da barra: com poucas categorias ele cabe, e

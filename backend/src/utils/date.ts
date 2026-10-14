@@ -18,14 +18,61 @@
  * nenhuma conversão de fuso pelo caminho.
  */
 
-/** Fuso de referência do escritório. */
+/**
+ * Fuso e janelas — valores PADRÃO, sobrescritos pela configuração do sistema.
+ *
+ * Eles continuam sendo constantes exportadas porque servem de fallback: se o
+ * banco estiver indisponível na subida, ou se a linha de configuração ainda não
+ * existir, o sistema opera com estes números em vez de quebrar.
+ *
+ * Os valores em uso ficam em variáveis de módulo logo abaixo, atualizadas por
+ * `applyRuntimeSettings` quando a configuração é carregada ou salva. É um
+ * CACHE, não uma segunda fonte de verdade: o banco manda, e toda escrita
+ * refresca isto na mesma transação lógica.
+ *
+ * Por que cache e não uma consulta por chamada: `today()` é chamada dezenas de
+ * vezes por requisição, em código síncrono espalhado por todos os módulos.
+ * Torná-la assíncrona para ler o banco contaminaria a assinatura de metade do
+ * sistema para buscar um valor que muda uma vez por ano.
+ */
+
+/** Fuso de referência do escritório (padrão). */
 export const APP_TIME_ZONE = 'America/Sao_Paulo';
 
 /** Janela considerada "contrato próximo do vencimento". */
 export const CONTRACT_EXPIRY_WINDOW_DAYS = 30;
 
-/** Janela considerada "fatura vencendo em breve". */
+/** Janela padrão considerada "fatura vencendo em breve". */
 export const INVOICE_DUE_SOON_WINDOW_DAYS = 7;
+
+let runtimeTimeZone: string = APP_TIME_ZONE;
+let runtimeDueSoonDays: number = INVOICE_DUE_SOON_WINDOW_DAYS;
+
+/** Aplica a configuração carregada do banco. Chamado na subida e a cada escrita. */
+export function applyRuntimeSettings(settings: {
+  timeZone?: string;
+  dueSoonDays?: number;
+}): void {
+  if (settings.timeZone) runtimeTimeZone = settings.timeZone;
+  if (typeof settings.dueSoonDays === 'number') runtimeDueSoonDays = settings.dueSoonDays;
+}
+
+/** Fuso em uso agora. */
+export function appTimeZone(): string {
+  return runtimeTimeZone;
+}
+
+/**
+ * Antecedência, em dias, do aviso de vencimento.
+ *
+ * É uma FUNÇÃO, e não uma constante importada, justamente para que quem a
+ * consome leia o valor no momento da chamada. Uma constante importada seria
+ * congelada no import e continuaria valendo 7 depois de o administrador mudar
+ * para 15 — e o bug só apareceria no próximo reinício do servidor.
+ */
+export function invoiceDueSoonWindowDays(): number {
+  return runtimeDueSoonDays;
+}
 
 /** Quantidade de meses exibida nos gráficos históricos. */
 export const CHART_MONTHS = 12;
@@ -36,7 +83,7 @@ export const CHART_MONTHS = 12;
  * `en-CA` é usado porque seu formato padrão é exatamente `YYYY-MM-DD`,
  * evitando montagem manual de string.
  */
-export function today(timeZone: string = APP_TIME_ZONE): string {
+export function today(timeZone: string = runtimeTimeZone): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',

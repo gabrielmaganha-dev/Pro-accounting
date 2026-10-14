@@ -1,21 +1,14 @@
-import {
-  ArrowDownAZ,
-  ArrowUpAZ,
-  Eye,
-  Pencil,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  UserPlus,
-  Users,
-  X,
-} from 'lucide-react';
+import { Eye, Pencil, Plus, Search, UserPlus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { Pagination } from '@/components/common/Pagination';
+import { SortableHead } from '@/components/common/SortableHead';
+import { SortSelect, type SortOption } from '@/components/common/SortSelect';
+import { TableSkeleton } from '@/components/common/TableSkeleton';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -26,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -41,6 +33,14 @@ import { formatCpfCnpj, formatDate, formatPhone } from '@/utils/format';
 
 /** Valor usado pelo Select para representar "sem filtro". */
 const ALL = '__all__';
+
+type ClientSort = NonNullable<ClientListFilters['sort']>;
+
+/** As mesmas colunas ordenáveis do cabeçalho da tabela. */
+const SORT_OPTIONS: SortOption<ClientSort>[] = [
+  { column: 'createdAt', label: 'Cadastro' },
+  { column: 'name', label: 'Cliente' },
+];
 
 const PAGE_SIZE = 20;
 
@@ -107,7 +107,7 @@ export function ClientsListPage() {
     [page, search, status, state, sort, order],
   );
 
-  const { data, isPending, isFetching, isError, error } = useClients(filters);
+  const { data, isPending, isFetching, isError, error, refetch } = useClients(filters);
 
   const hasActiveFilters = Boolean(search || status || state);
 
@@ -126,7 +126,9 @@ export function ClientsListPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {data
               ? `${data.total} ${data.total === 1 ? 'cliente cadastrado' : 'clientes cadastrados'}`
-              : 'Carregando…'}
+              : isError
+                ? 'Lista indisponível no momento'
+                : 'Carregando…'}
           </p>
         </div>
 
@@ -160,8 +162,10 @@ export function ClientsListPage() {
               value={status || ALL}
               onValueChange={(value) => updateParams({ status: value, page: '1' })}
             >
-              <SelectTrigger className="w-[150px]" aria-label="Filtrar por situação">
-                <SlidersHorizontal className="size-4 text-muted-foreground" />
+              <SelectTrigger
+                className="min-w-[160px] flex-1 sm:w-[190px] sm:flex-none"
+                aria-label="Filtrar por situação"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -175,7 +179,10 @@ export function ClientsListPage() {
               value={state || ALL}
               onValueChange={(value) => updateParams({ state: value, page: '1' })}
             >
-              <SelectTrigger className="w-[110px]" aria-label="Filtrar por UF">
+              <SelectTrigger
+                className="min-w-[120px] flex-1 sm:w-[130px] sm:flex-none"
+                aria-label="Filtrar por UF"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -187,6 +194,18 @@ export function ClientsListPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* "Cadastro" — a ordenação padrão — só tem cabeçalho a partir de
+                1440px. Abaixo disso é por aqui que se ordena. */}
+            <SortSelect
+              options={SORT_OPTIONS}
+              sort={sort}
+              order={order}
+              onChange={(column, nextOrder) =>
+                updateParams({ sort: column, order: nextOrder, page: '1' })
+              }
+              className="wide:hidden"
+            />
 
             {hasActiveFilters && (
               <Button
@@ -204,11 +223,16 @@ export function ClientsListPage() {
 
       {/* ---------------- Tabela ---------------- */}
       <Card className="overflow-hidden">
-        {isError ? (
-          <EmptyState
+        {/* `&& !data`: um refetch em segundo plano que falha (rede oscilou,
+            limite de requisições) deixa a consulta em erro COM os dados
+            anteriores em cache. Trocar a lista inteira por uma tela de erro
+            nesse caso esconderia conteúdo válido. */}
+        {isError && !data ? (
+          <ErrorState
             title="Não foi possível carregar os clientes"
             description={error instanceof Error ? error.message : undefined}
-            icon={Users}
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
           />
         ) : isPending ? (
           <TableSkeleton />
@@ -242,33 +266,33 @@ export function ClientsListPage() {
           />
         ) : (
           <>
+            {/* Colunas por largura de tela. A regra é a mesma em todas as
+                listagens: no celular ficam a identificação e a situação, e o
+                que não cabe vira subtítulo da primeira coluna em vez de ir
+                parar fora da tela. */}
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>
-                    <SortButton
-                      label="Cliente"
-                      column="name"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="hidden xl:table-cell">Nome fantasia</TableHead>
-                  <TableHead>CPF / CNPJ</TableHead>
-                  <TableHead className="hidden lg:table-cell">E-mail</TableHead>
+                  <SortableHead
+                    label="Cliente"
+                    column="name"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                  />
+                  <TableHead className="hidden sm:table-cell">CPF / CNPJ</TableHead>
+                  <TableHead className="hidden xl:table-cell">E-mail</TableHead>
                   <TableHead className="hidden md:table-cell">Telefone</TableHead>
                   <TableHead>Situação</TableHead>
-                  <TableHead className="hidden xl:table-cell">
-                    <SortButton
-                      label="Cadastro"
-                      column="createdAt"
-                      activeColumn={sort}
-                      order={order}
-                      onClick={toggleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="w-[100px] text-right">Ações</TableHead>
+                  <SortableHead
+                    label="Cadastro"
+                    column="createdAt"
+                    activeColumn={sort}
+                    order={order}
+                    onClick={toggleSort}
+                    className="hidden wide:table-cell"
+                  />
+                  <TableHead className="hidden w-[100px] text-right xl:table-cell">Ações</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -280,26 +304,37 @@ export function ClientsListPage() {
                     onClick={() => navigate(`/clientes/${client.id}`)}
                   >
                     <TableCell>
-                      <p className="font-medium text-foreground">{client.name}</p>
-                      {/* Abaixo de 1280px o nome fantasia não tem coluna
-                          própria, então aparece aqui como subtítulo em vez
-                          de simplesmente sumir. */}
+                      {/* Link de verdade, não só linha clicável: é o que torna
+                          a ficha alcançável por teclado e leitor de tela — e,
+                          no celular, onde a coluna de ações não aparece, é o
+                          caminho até ela. stopPropagation evita navegar duas
+                          vezes (link + clique da linha). */}
+                      <Link
+                        to={`/clientes/${client.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {client.name}
+                      </Link>
                       {client.companyName && (
-                        <p className="text-xs text-muted-foreground xl:hidden">
-                          {client.companyName}
+                        <p className="text-xs text-muted-foreground">{client.companyName}</p>
+                      )}
+                      <p className="text-xs tabular-nums text-muted-foreground sm:hidden">
+                        {formatCpfCnpj(client.cpfCnpj)}
+                      </p>
+                      {/* O e-mail só ganha coluna a partir de 1280px. */}
+                      {client.email && (
+                        <p className="hidden break-all text-xs text-muted-foreground md:block xl:hidden">
+                          {client.email}
                         </p>
                       )}
                     </TableCell>
 
-                    <TableCell className="hidden xl:table-cell">
-                      {client.companyName ?? <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="hidden whitespace-nowrap tabular-nums sm:table-cell">
                       {formatCpfCnpj(client.cpfCnpj)}
                     </TableCell>
 
-                    <TableCell className="hidden max-w-[220px] truncate lg:table-cell">
+                    <TableCell className="hidden max-w-[200px] truncate xl:table-cell">
                       {client.email ?? <span className="text-muted-foreground">—</span>}
                     </TableCell>
 
@@ -311,11 +346,11 @@ export function ClientsListPage() {
                       <ClientStatusBadge status={client.status} />
                     </TableCell>
 
-                    <TableCell className="hidden whitespace-nowrap xl:table-cell">
+                    <TableCell className="hidden whitespace-nowrap wide:table-cell">
                       {formatDate(client.createdAt)}
                     </TableCell>
 
-                    <TableCell className="text-right">
+                    <TableCell className="hidden text-right xl:table-cell">
                       {/* stopPropagation: sem ele, clicar em Editar abriria a
                           tela de detalhes (clique da linha) e logo em seguida
                           a de edição. */}
@@ -353,52 +388,6 @@ export function ClientsListPage() {
           </>
         )}
       </Card>
-    </div>
-  );
-}
-
-interface SortButtonProps {
-  label: string;
-  column: NonNullable<ClientListFilters['sort']>;
-  activeColumn: string;
-  order: 'asc' | 'desc';
-  onClick: (column: NonNullable<ClientListFilters['sort']>) => void;
-}
-
-function SortButton({ label, column, activeColumn, order, onClick }: SortButtonProps) {
-  const isActive = activeColumn === column;
-
-  return (
-    <button
-      type="button"
-      onClick={() => onClick(column)}
-      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide transition-colors hover:text-foreground"
-      aria-label={`Ordenar por ${label}`}
-    >
-      {label}
-      {isActive &&
-        (order === 'asc' ? (
-          <ArrowUpAZ className="size-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowDownAZ className="size-3.5" aria-hidden="true" />
-        ))}
-    </button>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4 px-4 py-4">
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-48" />
-            <Skeleton className="h-3 w-32" />
-          </div>
-          <Skeleton className="hidden h-4 w-32 sm:block" />
-          <Skeleton className="h-6 w-16 rounded-full" />
-        </div>
-      ))}
     </div>
   );
 }

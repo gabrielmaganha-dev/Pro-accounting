@@ -1,0 +1,151 @@
+# =============================================================================
+# Pro Accounting — nginx (interface + proxy da API)
+# =============================================================================
+# Este arquivo é um MODELO. Na subida do container, a imagem troca as três
+# variáveis de ambiente usadas aqui — API_UPSTREAM, NGINX_RESOLVER e
+# TRUSTED_PROXY_CIDR — pelos valores definidos e grava o resultado em
+# /etc/nginx/conf.d/default.conf. As variáveis do próprio nginx
+# ($host, $uri, $remote_addr…) não são tocadas: só é substituído o que existe
+# como variável de ambiente do container.
+#
+# Um endereço só para o navegador:
+#
+#   /api/*    →  repassado ao backend
+#   /assets/* →  arquivos com hash no nome, cache de um ano
+#   o resto   →  index.html (as rotas da interface são resolvidas no navegador)
+# =============================================================================
+
+# Esquema original da requisição. Atrás de um proxy que termina o HTTPS (Caddy,
+# balanceador), o nginx recebe HTTP puro e $scheme diz "http" — quem sabe a
+# verdade é o cabeçalho X-Forwarded-Proto que o proxy envia.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $scheme;
+    https   https;
+}
+
+# HSTS apenas quando há HTTPS de fato. Vazio = cabeçalho não é emitido.
+map $forwarded_proto $hsts_header {
+    default "";
+    https   "max-age=31536000; includeSubDomains";
+}
+
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Não anuncia a versão do nginx nas respostas e nas páginas de erro.
+    server_tokens off;
+
+    # Mesmo teto do bodyLimit da API (1 MB): o que ela recusaria, o nginx
+    # recusa antes, sem ocupar uma conexão do backend.
+    client_max_body_size 1m;
+
+    # --- IP real do visitante ------------------------------------------------
+    # Só importa quando existe OUTRO proxy na frente deste nginx (um
+    # balanceador, o nginx do próprio servidor terminando o HTTPS). Nesse caso
+    # toda conexão chega com o IP do proxy, e o endereço verdadeiro vem no
+    # cabeçalho X-Forwarded-For.
+    #
+    # Esse cabeçalho só merece confiança se quem o enviou for o proxy. Aceito
+    # de qualquer origem, deixaria qualquer visitante se passar por outro IP e
+    # escapar do limite de tentativas de login — por isso o padrão
+    # (127.0.0.1/32) não confia em ninguém de fora. Informe o endereço do seu
+    # proxy em TRUSTED_PROXY_CIDR para ligar.
+    set_real_ip_from ${TRUSTED_PROXY_CIDR};
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # --- Compressão ----------------------------------------------------------
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # --- Verificação de saúde da interface ------------------------------------
+    # Responde do próprio nginx, sem tocar na API nem no disco.
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # --- API -------------------------------------------------------------------
+    location /api/ {
+        # O nome do backend é resolvido A CADA requisição (com cache de 10s),
+        # e não uma vez só na subida. É o que a variável em proxy_pass faz:
+        # sem ela o nginx guardaria o IP do container para sempre, e depois de
+        # um `docker compose up -d backend` — que dá outro IP ao container —
+        # toda chamada à API falharia com 502 até alguém reiniciar o nginx.
+        resolver ${NGINX_RESOLVER} valid=10s ipv6=off;
+        set $api_upstream http://${API_UPSTREAM};
+
+        # Sem caminho depois da variável: o endereço original (/api/...) segue
+        # intacto, que é como as rotas estão registradas no backend.
+        proxy_pass $api_upstream;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        proxy_set_header Host $host;
+        # $remote_addr já é o IP real (ver "IP real do visitante" acima).
+        # SOBRESCREVE em vez de acrescentar: o backend recebe um único
+        # endereço, definido por este nginx, e nada que o cliente tenha
+        # escrito no cabeçalho chega até ele.
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 60s;
+        # Exportações em PDF/Excel de relatórios grandes levam alguns segundos.
+        proxy_read_timeout 60s;
+
+        # API fora do ar (reinício, atualização em andamento) ou sem responder:
+        # o nginx devolveria a página HTML "502 Bad Gateway". A interface lê
+        # JSON em tudo o que vem de /api, e sem ele só consegue mostrar "Erro
+        # inesperado". Vale apenas para a falha gerada pelo próprio nginx: o
+        # que a API responder — inclusive os erros dela — passa sem alteração.
+        # Sem "=" o status original (502 ou 504) é mantido.
+        error_page 502 504 @api_indisponivel;
+    }
+
+    location @api_indisponivel {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        return 503 '{"success":false,"error":{"code":"INTERNAL_ERROR","message":"O sistema está indisponível no momento. Aguarde alguns instantes e tente de novo."}}';
+    }
+
+    # --- Arquivos com hash no nome --------------------------------------------
+    # O Vite põe o hash do conteúdo no nome (index-D2WRzFnI.js): se o conteúdo
+    # muda, o nome muda. Por isso podem ficar no cache do navegador por um ano.
+    location /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+
+        # Arquivo inexistente é 404 — NÃO cai no index.html. Depois de uma
+        # atualização, uma aba antiga pede um .js que não existe mais; se a
+        # resposta fosse o HTML com status 200, o navegador tentaria executar
+        # HTML como JavaScript. Com 404 a interface percebe e recarrega.
+        try_files $uri =404;
+    }
+
+    # --- Interface --------------------------------------------------------------
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+
+        # O index.html NUNCA fica em cache sem revalidar: é ele que aponta para
+        # os arquivos da versão atual. Em cache, o navegador continuaria
+        # abrindo a versão antiga depois de cada atualização.
+        add_header Cache-Control "no-cache" always;
+
+        # /clientes/123 não existe como arquivo: quem resolve a rota é o
+        # JavaScript da interface. Tudo que não for arquivo recebe o index.html.
+        try_files $uri $uri/ /index.html;
+    }
+}

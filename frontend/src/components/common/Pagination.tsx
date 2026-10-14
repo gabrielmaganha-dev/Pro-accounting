@@ -26,7 +26,10 @@ export function Pagination({
   const lastItem = Math.min(page * pageSize, total);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
+    <nav
+      aria-label="Paginação"
+      className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3"
+    >
       {/* "21–40 de 137" responde duas perguntas que "página 2 de 7" não
           responde: quantos registros existem ao todo e onde estou neles. */}
       <p className="text-xs text-muted-foreground">
@@ -41,13 +44,18 @@ export function Pagination({
           size="sm"
           onClick={() => onPageChange(page - 1)}
           disabled={disabled || page <= 1}
+          // No celular o texto some e fica só a seta: sem o rótulo, o botão
+          // não tinha nome nenhum para o leitor de tela.
+          aria-label="Página anterior"
         >
           <ChevronLeft />
           <span className="hidden sm:inline">Anterior</span>
         </Button>
 
         <span className="px-1 text-xs tabular-nums text-muted-foreground">
-          {page} / {totalPages}
+          <span className="sr-only">Página </span>
+          {page} <span aria-hidden="true">/</span>
+          <span className="sr-only"> de </span> {totalPages}
         </span>
 
         <Button
@@ -55,11 +63,12 @@ export function Pagination({
           size="sm"
           onClick={() => onPageChange(page + 1)}
           disabled={disabled || page >= totalPages}
+          aria-label="Próxima página"
         >
           <span className="hidden sm:inline">Próxima</span>
           <ChevronRight />
         </Button>
       </div>
-    </div>
+    </nav>
   );
 }

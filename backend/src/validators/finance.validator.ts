@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { REPORT_FORMATS } from '../reports/types.js';
 import { isValidIsoDate } from '../utils/date.js';
 
 /**
@@ -82,13 +83,12 @@ export type FinanceEntriesQuery = z.infer<typeof financeEntriesQuerySchema>;
 /**
  * Formatos de exportação.
  *
- * Os três são aceitos pelo schema de propósito, embora só CSV esteja
- * implementado. Deixar `xlsx` e `pdf` visíveis no contrato — e respondendo
- * **501** com a mensagem dizendo o que já funciona — comunica que eles estão
- * previstos, em vez de devolver "valor inválido" e dar a impressão de que a
- * exportação nunca foi pensada.
+ * A lista vem do núcleo de relatórios, e não de uma cópia local: os
+ * formatadores são os mesmos, então os formatos aceitos têm de ser os mesmos.
+ * Enquanto eram duas listas, esta aqui anunciava `xlsx` e `pdf` que a
+ * implementação recusava com 501 — hoje os três funcionam.
  */
-export const EXPORT_FORMATS = ['csv', 'xlsx', 'pdf'] as const;
+export const EXPORT_FORMATS = REPORT_FORMATS;
 
 export const financeExportQuerySchema = withCustomRules(
   periodBase.extend({

@@ -1,7 +1,10 @@
-import { Bell, ChevronDown, LogOut, Menu, Settings, User as UserIcon } from 'lucide-react';
+import { ChevronDown, KeyRound, LogOut, Menu, Settings, User as UserIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { NAV_ITEMS } from '@/components/layout/nav-items';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { ChangePasswordDialog } from '@/components/users/ChangePasswordDialog';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +30,20 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const health = useApiHealth();
+
+  const [passwordOpen, setPasswordOpen] = useState(false);
+
+  /**
+   * Cobrança da troca de senha provisória.
+   *
+   * O diálogo abre sozinho quando a senha em uso é a provisória — e, nesse
+   * modo, não tem como ser fechado sem trocar. Fica aqui, e não na página de
+   * login, porque a marcação também chega pelo `/auth/me` de uma sessão
+   * restaurada: quem fechou o navegador antes de trocar volta a ser cobrado.
+   */
+  useEffect(() => {
+    if (user?.mustChangePassword) setPasswordOpen(true);
+  }, [user?.mustChangePassword]);
 
   // Título da página a partir do próprio menu — sem uma segunda lista de
   // títulos para manter em sincronia.
@@ -65,27 +82,17 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
           database={health.data?.database}
         />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Notificações">
-              <Bell className="size-5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-72">
-            <DropdownMenuLabel>Notificações</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-              Nenhuma notificação no momento.
-              <p className="mt-1 text-xs">
-                Os alertas de faturas e contratos aparecerão aqui.
-              </p>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <NotificationBell />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-auto gap-2 px-2 py-1.5">
+            {/* No celular só o avatar aparece, e o nome acessível do botão
+                seria a inicial ("A"). O rótulo diz o que o botão abre. */}
+            <Button
+              variant="ghost"
+              className="h-auto gap-2 px-2 py-1.5"
+              aria-label={`Menu da conta de ${user?.name ?? 'usuário'}`}
+            >
               <Avatar>
                 <AvatarFallback>{getInitials(user?.name ?? '')}</AvatarFallback>
               </Avatar>
@@ -109,6 +116,10 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
               <UserIcon />
               Meu perfil
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
+              <KeyRound />
+              Alterar senha
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => navigate('/configuracoes')}>
               <Settings />
               Configurações
@@ -121,6 +132,12 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <ChangePasswordDialog
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+        required={user?.mustChangePassword ?? false}
+      />
     </header>
   );
 }

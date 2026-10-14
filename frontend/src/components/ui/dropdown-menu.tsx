@@ -18,6 +18,13 @@ const DropdownMenuContent = React.forwardRef<
       sideOffset={sideOffset}
       className={cn(
         'z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md',
+        // Nunca mais largo que a tela: um menu de 352px num aparelho de 360px
+        // encostava nas duas bordas.
+        'max-w-[calc(100vw-1.5rem)]',
+        // O Radix põe o foco no painel ao abrir, e a regra global de foco
+        // desenhava um anel em volta do menu inteiro. Quem indica onde o foco
+        // está é o item realçado, não a moldura.
+        'outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -41,8 +48,10 @@ const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition-colors',
-      'focus:bg-secondary focus:text-secondary-foreground',
+      'relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition-colors touch:min-h-10',
+      // O realce de fundo já é o indicador de foco do item; o anel global por
+      // cima dele duplicava a marcação.
+      'focus:bg-secondary focus:text-secondary-foreground focus-visible:ring-0 focus-visible:ring-offset-0',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       '[&_svg]:size-4 [&_svg]:shrink-0',
       destructive && 'text-destructive focus:bg-red-50 focus:text-destructive',

@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { ChartTooltip } from '@/components/dashboard/ChartTooltip';
-import { AXIS_COLOR, BAR_RADIUS, GRID_COLOR, SERIES_COLORS, TICK_STYLE } from '@/lib/chart-theme';
+import { AXIS_COLOR, BAR_RADIUS, GRID_COLOR, seriesColors, TICK_STYLE } from '@/lib/chart-theme';
 import type { NewClientsPoint } from '@/types/dashboard';
 
 interface NewClientsChartProps {
@@ -16,6 +16,9 @@ interface NewClientsChartProps {
  * que as duas séries medem a mesma coisa.
  */
 export function NewClientsChart({ data }: NewClientsChartProps) {
+  // Resolvido por renderização: as cores vêm da identidade visual configurada.
+  const colors = seriesColors();
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -56,7 +59,7 @@ export function NewClientsChart({ data }: NewClientsChartProps) {
                   {
                     label: count === 1 ? 'Novo cliente' : 'Novos clientes',
                     value: String(count),
-                    color: SERIES_COLORS.clients,
+                    color: colors.clients,
                   },
                 ]}
               />
@@ -66,7 +69,7 @@ export function NewClientsChart({ data }: NewClientsChartProps) {
 
         <Bar
           dataKey="count"
-          fill={SERIES_COLORS.clients}
+          fill={colors.clients}
           radius={BAR_RADIUS}
           maxBarSize={44}
           name="Novos clientes"

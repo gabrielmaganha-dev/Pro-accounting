@@ -1,0 +1,43 @@
+# =============================================================================
+# Pro Accounting — HTTPS automático (perfil "https" do compose de produção)
+# =============================================================================
+# O Caddy obtém o certificado Let's Encrypt de {$DOMAIN} na primeira subida e o
+# renova sozinho. A porta 80 fica aberta só para o desafio de emissão e para
+# redirecionar quem digitar http://.
+#
+# Com DOMAIN=localhost ele usa um certificado da própria autoridade interna —
+# serve para testar a cadeia inteira numa máquina sem domínio (o navegador
+# avisa que o certificado não é confiável, o que é esperado).
+# =============================================================================
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# A API vai DIRETO ao backend, sem passar pelo nginx da interface.
+	#
+	# O Caddy define X-Forwarded-For com o IP de quem conectou e descarta o que
+	# o cliente tenha enviado nesse cabeçalho. Assim o limite de tentativas de
+	# login e a trilha de auditoria enxergam o endereço real do visitante — e
+	# ninguém consegue forjá-lo.
+	@api path /api/*
+	handle @api {
+		reverse_proxy backend:3333
+	}
+
+	# Todo o resto é a interface. Os cabeçalhos de segurança (CSP, HSTS…) são
+	# definidos pelo nginx dela e pela própria API.
+	handle {
+		reverse_proxy frontend:8080
+	}
+
+	# API fora do ar (reinício, atualização em andamento): o Caddy devolveria um
+	# 502 sem corpo. A interface lê JSON em tudo o que vem de /api, e sem ele só
+	# consegue mostrar "Erro inesperado". O status original é mantido.
+	handle_errors {
+		handle @api {
+			header Content-Type application/json
+			header Cache-Control no-store
+			respond `{"success":false,"error":{"code":"INTERNAL_ERROR","message":"O sistema está indisponível no momento. Aguarde alguns instantes e tente de novo."}}` {err.status_code}
+		}
+	}
+}

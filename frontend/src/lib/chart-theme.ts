@@ -34,13 +34,42 @@ import type { ContractStatus, EffectiveInvoiceStatus } from '@/types/dashboard';
  * mais escuro.
  */
 
-/** Séries temporais de uma variável só — um matiz, sem legenda. */
-export const SERIES_COLORS = {
-  /** Receita: azul institucional da marca. */
-  revenue: '#2563EB',
-  /** Clientes novos: entidade diferente, matiz diferente (ΔE 22.6 do azul). */
-  clients: '#0D9488',
-} as const;
+/**
+ * Séries temporais de uma variável só — um matiz, sem legenda.
+ *
+ * Estas DUAS acompanham a identidade visual configurada: a receita usa a cor
+ * principal e os clientes novos a secundária, lidas das variáveis CSS que
+ * `lib/theme.ts` escreve. O gráfico é SVG e a biblioteca não resolve
+ * `var(--x)` dentro dos atributos de preenchimento, por isso a leitura é feita
+ * aqui, em JavaScript, no momento de desenhar.
+ *
+ * As cores de ESTADO abaixo continuam fixas, e é uma decisão: vermelho
+ * significa atraso em qualquer identidade visual, e a paleta passou por
+ * validação de contraste e de distinção sob daltonismo. Deixá-las
+ * configuráveis destruiria as duas coisas.
+ */
+const SERIES_FALLBACK = { revenue: '#2563EB', clients: '#0D9488' } as const;
+
+/**
+ * Lê a cor da variável CSS, caindo no padrão quando ela ainda não foi escrita
+ * — o que acontece no primeiro quadro, antes de a configuração chegar da API.
+ */
+function cssColor(variable: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+
+  const value = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+  return value || fallback;
+}
+
+export function seriesColors(): { revenue: string; clients: string } {
+  return {
+    revenue: cssColor('--chart-primary', SERIES_FALLBACK.revenue),
+    clients: cssColor('--chart-secondary', SERIES_FALLBACK.clients),
+  };
+}
+
+/** Mantido para quem só precisa do valor padrão, sem tocar no documento. */
+export const SERIES_COLORS = SERIES_FALLBACK;
 
 /** Cores reservadas para estado. Nunca reutilizadas como "série 4". */
 export const STATUS_COLORS = {
