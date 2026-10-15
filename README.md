@@ -313,7 +313,7 @@ Ainda no `backend\.env`:
 ```dotenv
 ADMIN_NAME="Seu Nome"
 ADMIN_EMAIL=seuemail@proaccounting.com.br
-ADMIN_PASSWORD=UmaSenhaForte@2026
+ADMIN_PASSWORD=troque-esta-senha-do-admin
 ```
 
 ### Passo 6 — Preparar o banco de dados
@@ -469,12 +469,12 @@ exemplo, exige `CORS_ORIGIN` e rejeita origem com caminho ou curinga.
 
 ## 7. Credenciais do administrador
 
-**Não existem credenciais fixas no código.** O administrador é criado pelo seed a partir das variáveis de ambiente:
+**Não existem credenciais fixas no código.** O administrador é criado pelo seed a partir das variáveis de ambiente — com uma senha **escolhida por você**: o repositório é público, e em produção o seed recusa as senhas de exemplo dele.
 
 ```dotenv
 ADMIN_NAME="Seu Nome"
 ADMIN_EMAIL=seuemail@proaccounting.com.br
-ADMIN_PASSWORD=UmaSenhaForte@2026
+ADMIN_PASSWORD=troque-esta-senha-do-admin
 ```
 
 O que acontece ao rodar `npm run db:seed`:
@@ -514,7 +514,7 @@ curl http://localhost:3333/api/health
 Login (troque e-mail e senha pelos seus):
 
 ```powershell
-curl -X POST http://localhost:3333/api/auth/login -H "Content-Type: application/json" -d '{\"email\":\"seuemail@proaccounting.com.br\",\"password\":\"UmaSenhaForte@2026\"}'
+curl -X POST http://localhost:3333/api/auth/login -H "Content-Type: application/json" -d '{\"email\":\"seuemail@proaccounting.com.br\",\"password\":\"SUA-SENHA\"}'
 ```
 
 Resposta esperada:
@@ -1884,7 +1884,7 @@ dcp run --rm backend node dist/database/seed.js
 ```
 
 Em produção essa senha é **provisória**: o primeiro login abre a troca obrigatória, que não pode ser
-dispensada. O seed também recusa a senha de exemplo do repositório (`Admin@123456`). Depois de criar
+dispensada. O seed também recusa as senhas de exemplo publicadas no repositório. Depois de criar
 o administrador, **apague `ADMIN_PASSWORD` do `.env.production`**.
 
 O seed é idempotente: rodar de novo não duplica o usuário nem troca a senha dele.
@@ -2174,7 +2174,7 @@ pré-visualização com endereço próprio. Em cada deploy, `scripts/vercel-buil
 | `CORS_ORIGIN`    | não         | Na Vercel os endereços do próprio deploy já são autorizados sozinhos. Preencha só para liberar **outro** site. |
 | `JWT_EXPIRES_IN` | não         | Duração da sessão. Padrão `1d`; o compose do Docker usa `8h` (um expediente). |
 | `ADMIN_EMAIL`    | não         | Com `ADMIN_PASSWORD`, cria o administrador no deploy.                      |
-| `ADMIN_PASSWORD` | não         | Mínimo de 8 caracteres. Depois do primeiro deploy, troque a senha no sistema e apague a variável. |
+| `ADMIN_PASSWORD` | não         | Mínimo de 8 caracteres, **só sua**: com uma senha de exemplo do repositório o seed é ignorado. Depois do primeiro deploy, troque a senha no sistema e apague a variável. |
 | `ADMIN_NAME`     | não         | Padrão: "Administrador".                                                   |
 | `LOG_LEVEL`      | não         | Padrão `info`. Os logs ficam em Deployments → Logs.                         |
 

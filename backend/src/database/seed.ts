@@ -18,6 +18,13 @@ import { hashPassword } from '../utils/password.js';
  *    administrador para o valor do .env, que muita gente deixa no padrão.
  *  • A senha em texto puro nunca é gravada nem registrada em log.
  */
+/** Senhas que aparecem como exemplo no repositório: qualquer pessoa as conhece. */
+const PUBLIC_EXAMPLE_PASSWORDS = ['Admin@123456', 'UmaSenhaForte@123', 'UmaSenhaForte@2026'];
+
+function isPublicExamplePassword(password: string): boolean {
+  return PUBLIC_EXAMPLE_PASSWORDS.includes(password) || /troque/i.test(password);
+}
+
 async function main(): Promise<void> {
   const name = env.ADMIN_NAME ?? 'Administrador';
   const email = env.ADMIN_EMAIL;
@@ -32,7 +39,7 @@ async function main(): Promise<void> {
         '   Defina em backend/.env:',
         '     ADMIN_NAME="Administrador"',
         '     ADMIN_EMAIL=admin@proaccounting.com.br',
-        '     ADMIN_PASSWORD=UmaSenhaForte@123',
+        '     ADMIN_PASSWORD=<uma senha só sua>',
         '',
         '   (ADMIN_PASSWORD precisa ter no mínimo 8 caracteres.)',
         '',
@@ -43,18 +50,19 @@ async function main(): Promise<void> {
   }
 
   /**
-   * Em produção, a senha de exemplo é recusada.
+   * Em produção, as senhas de exemplo são recusadas.
    *
-   * `Admin@123456` está escrita no `.env.example` e no README, publicados no
-   * repositório. Criar o administrador de um sistema real com ela é deixar a
-   * porta aberta com a chave na fechadura — e é exatamente o que acontece
-   * quando alguém copia o exemplo e esquece de editar esta linha.
+   * Elas estão — ou já estiveram — escritas no `.env.example` e no README,
+   * publicados no repositório e guardados no histórico do Git. Criar o
+   * administrador de um sistema real com uma delas é deixar a porta aberta
+   * com a chave na fechadura — e é exatamente o que acontece quando alguém
+   * copia o exemplo e esquece de editar esta linha.
    */
-  if (env.isProduction && password === 'Admin@123456') {
+  if (env.isProduction && isPublicExamplePassword(password)) {
     console.error(
       [
         '',
-        '  Seed cancelado: ADMIN_PASSWORD ainda é a senha de exemplo.',
+        '  Seed cancelado: ADMIN_PASSWORD é uma senha de exemplo, publicada no repositório.',
         '',
         '   Defina uma senha própria antes de criar o administrador de produção.',
         '',

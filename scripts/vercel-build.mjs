@@ -65,8 +65,25 @@ run(`node -e "import('./backend/dist/config/env.js')"`, { NODE_ENV: 'production'
 
 run('npm run db:deploy --prefix backend', { DATABASE_URL: migrationUrl });
 
-if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
-  run('npm run db:seed --prefix backend', { DATABASE_URL: migrationUrl });
+// Senhas que aparecem como exemplo no repositório (mesma lista do seed):
+// qualquer pessoa as conhece. Com uma delas o seed é PULADO, com aviso — o
+// build segue, porque o administrador que já existe não depende dele.
+const PUBLIC_EXAMPLE_PASSWORDS = ['Admin@123456', 'UmaSenhaForte@123', 'UmaSenhaForte@2026'];
+const adminPassword = process.env.ADMIN_PASSWORD;
+const isPublicPassword =
+  adminPassword !== undefined &&
+  (PUBLIC_EXAMPLE_PASSWORDS.includes(adminPassword) || /troque/i.test(adminPassword));
+
+if (process.env.ADMIN_EMAIL && adminPassword && !isPublicPassword) {
+  // NODE_ENV=production: um administrador criado aqui sai com a troca de
+  // senha obrigatória no primeiro login.
+  run('npm run db:seed --prefix backend', { DATABASE_URL: migrationUrl, NODE_ENV: 'production' });
+} else if (isPublicPassword) {
+  console.warn(
+    '\n  ADMIN_PASSWORD é uma senha de exemplo publicada no repositório — seed do ' +
+      'administrador ignorado. Apague a variável na Vercel (o administrador já existe) ' +
+      'ou defina uma senha só sua.',
+  );
 } else {
   console.info('\nADMIN_EMAIL/ADMIN_PASSWORD não definidos — seed do administrador ignorado.');
 }
