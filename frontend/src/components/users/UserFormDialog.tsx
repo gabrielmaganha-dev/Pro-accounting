@@ -106,7 +106,7 @@ export function UserFormDialog({ user, open, onOpenChange }: UserFormDialogProps
     }
 
     createMutation.mutate(
-      { name: trimmedName, email: trimmedEmail, role, password, active: true },
+      { name: trimmedName, email: trimmedEmail, role, password },
       { onSuccess: () => onOpenChange(false) },
     );
   }

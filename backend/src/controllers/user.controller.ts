@@ -64,7 +64,7 @@ export async function createUserController(request: FastifyRequest, reply: Fasti
     entity: 'USER',
     entityId: user.id,
     entityLabel: user.email,
-    metadata: { perfil: user.role, ativo: user.active },
+    metadata: { perfil: user.role, situacao: user.status },
   });
 
   return reply.status(201).send(ok(user));
@@ -115,16 +115,21 @@ export async function updateUserRoleController(request: FastifyRequest, reply: F
 export async function updateUserStatusController(request: FastifyRequest, reply: FastifyReply) {
   const actor = requireUser(request);
   const { id } = validate(userIdParamSchema, request.params);
-  const { active } = validate(updateUserStatusSchema, request.body);
+  const { status } = validate(updateUserStatusSchema, request.body);
 
-  const user = await setUserStatus(id, active, actor);
+  const { user, previousStatus } = await setUserStatus(id, status, actor);
 
-  await recordAudit(actor, {
-    action: user.active ? 'ACTIVATE' : 'DEACTIVATE',
-    entity: 'USER',
-    entityId: user.id,
-    entityLabel: user.email,
-  });
+  if (user.status !== previousStatus) {
+    await recordAudit(actor, {
+      action: user.status === 'ACTIVE' ? 'ACTIVATE' : 'DEACTIVATE',
+      entity: 'USER',
+      entityId: user.id,
+      entityLabel: user.email,
+      // Aprovar um cadastro e reativar um bloqueado são o mesmo ACTIVATE; o
+      // metadata diz qual dos dois foi.
+      ...(previousStatus === 'PENDING' ? { metadata: { aprovacao: true } } : {}),
+    });
+  }
 
   return reply.status(200).send(ok(user));
 }
@@ -186,6 +191,9 @@ export async function changeOwnPasswordController(request: FastifyRequest, reply
     email: user.email,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
+    avatarUrl: user.avatarUrl,
+    // Acabou de gravar uma senha: a conta tem senha local.
+    hasPassword: true,
   });
 
   return reply.status(200).send(ok(session));

@@ -6,6 +6,12 @@ import { defineConfig } from 'vite';
 /** Pacotes do React: não dependem de nada fora deste grupo. */
 const REACT_CORE = /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/;
 
+/**
+ * Cliente do Supabase — só o login com Google usa, e só no clique, no retorno
+ * do Google e ao sair. Fica fora de `vendor` pelo mesmo motivo dos gráficos.
+ */
+const SUPABASE = /[\\/]node_modules[\\/](@supabase|tslib)[\\/]/;
+
 /** A biblioteca de gráficos e o que só ela usa. */
 const CHARTS =
   /[\\/]node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor|internmap|decimal\.js-light|@reduxjs|react-redux|redux|redux-thunk|reselect|immer|es-toolkit|eventemitter3|tiny-invariant)[\\/]/;
@@ -71,6 +77,7 @@ export default defineConfig({
           // Rollup os agrupa sozinho num arquivo assíncrono, que a tela de
           // login não baixa. Em `vendor`, voltariam ao carregamento inicial.
           if (CHARTS.test(id)) return undefined;
+          if (SUPABASE.test(id)) return undefined;
 
           return 'vendor';
         },

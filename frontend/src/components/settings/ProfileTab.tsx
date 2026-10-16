@@ -27,6 +27,7 @@ export function ProfileTab() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const googleOnly = user !== null && !user.hasPassword;
 
   useEffect(() => {
     setName(user?.name ?? '');
@@ -102,10 +103,17 @@ export function ProfileTab() {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                disabled={mutation.isPending}
+                // Conta só-Google: o e-mail é o da Conta Google, e não há senha
+                // para confirmar a troca. A API recusa de qualquer forma.
+                disabled={mutation.isPending || googleOnly}
                 maxLength={180}
+                aria-describedby="profile-email-hint"
               />
-              <p className="text-xs text-muted-foreground">É com ele que você entra no sistema.</p>
+              <p id="profile-email-hint" className="text-xs text-muted-foreground">
+                {googleOnly
+                  ? 'E-mail da sua Conta Google. Para alterá-lo, procure um administrador.'
+                  : 'É com ele que você entra no sistema.'}
+              </p>
             </div>
           </div>
 
@@ -164,10 +172,17 @@ export function ProfileTab() {
         </CardHeader>
 
         <CardContent>
-          <Button variant="outline" onClick={() => setPasswordOpen(true)}>
-            <KeyRound />
-            Alterar senha
-          </Button>
+          {googleOnly ? (
+            <p className="text-sm text-muted-foreground">
+              Você entra com a sua Conta Google e não tem senha neste sistema. Para ter também
+              acesso por e-mail e senha, peça a um administrador para redefinir o seu acesso.
+            </p>
+          ) : (
+            <Button variant="outline" onClick={() => setPasswordOpen(true)}>
+              <KeyRound />
+              Alterar senha
+            </Button>
+          )}
         </CardContent>
       </Card>
 

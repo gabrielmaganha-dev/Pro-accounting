@@ -14,7 +14,13 @@ export type AppErrorCode =
   | 'CONFLICT'
   | 'TOO_MANY_REQUESTS'
   | 'NOT_IMPLEMENTED'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  /** Conta cadastrada, aguardando a aprovação de um administrador. */
+  | 'ACCOUNT_PENDING'
+  /** Conta bloqueada por um administrador. */
+  | 'ACCOUNT_BLOCKED'
+  /** Um serviço externo de que a operação depende não respondeu. */
+  | 'SERVICE_UNAVAILABLE';
 
 /** Erro ligado a um campo específico do formulário, para destaque na interface. */
 export interface FieldIssue {
@@ -75,6 +81,24 @@ export class AppError extends Error {
 
   static internal(message = 'Erro interno do servidor.'): AppError {
     return new AppError(message, 500, 'INTERNAL_ERROR');
+  }
+
+  static accountPending(
+    message = 'Seu acesso está aguardando aprovação do administrador.',
+  ): AppError {
+    return new AppError(message, 403, 'ACCOUNT_PENDING');
+  }
+
+  static accountBlocked(
+    message = 'Sua conta está bloqueada. Entre em contato com o administrador.',
+  ): AppError {
+    return new AppError(message, 403, 'ACCOUNT_BLOCKED');
+  }
+
+  static serviceUnavailable(
+    message = 'Serviço temporariamente indisponível. Tente novamente em instantes.',
+  ): AppError {
+    return new AppError(message, 503, 'SERVICE_UNAVAILABLE');
   }
 }
 

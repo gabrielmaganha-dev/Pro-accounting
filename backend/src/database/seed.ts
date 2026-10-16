@@ -1,4 +1,4 @@
-import { UserRole } from '@prisma/client';
+import { UserRole, UserStatus } from '@prisma/client';
 
 import { env } from '../config/env.js';
 import { disconnectDatabase, prisma } from '../config/prisma.js';
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     // Reconcilia apenas o que é seguro reconciliar. Senha fica intocada.
     await prisma.user.update({
       where: { id: existing.id },
-      data: { name, role: UserRole.ADMIN, active: true },
+      data: { name, role: UserRole.ADMIN, status: UserStatus.ACTIVE },
     });
 
     console.info('');
@@ -107,7 +107,7 @@ async function main(): Promise<void> {
       email: normalizedEmail,
       password: passwordHash,
       role: UserRole.ADMIN,
-      active: true,
+      status: UserStatus.ACTIVE,
       /**
        * Em produção a senha do seed é provisória: o primeiro login abre o
        * diálogo de troca obrigatória, o mesmo usado no reset de acesso.

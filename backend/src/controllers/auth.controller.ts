@@ -2,11 +2,24 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { requestOrigin } from '../middlewares/auth.middleware.js';
 import { recordAudit } from '../services/audit.service.js';
-import { login } from '../services/auth.service.js';
+import {
+  assertCanSignIn,
+  issueSession,
+  login,
+  resolveGoogleAccount,
+} from '../services/auth.service.js';
+import { verifyGoogleSession } from '../services/google-identity.service.js';
 import { ok } from '../utils/api-response.js';
 import { AppError, isAppError } from '../utils/app-error.js';
 import { validate } from '../utils/validate.js';
-import { loginSchema } from '../validators/auth.validator.js';
+import { googleLoginSchema, loginSchema } from '../validators/auth.validator.js';
+
+/** Motivo legível de uma recusa de login, para a trilha de auditoria. */
+function refusalReason(error: AppError): string {
+  if (error.code === 'ACCOUNT_PENDING') return 'aguardando aprovação';
+  if (error.code === 'ACCOUNT_BLOCKED') return 'conta bloqueada';
+  return 'credenciais inválidas';
+}
 
 /**
  * POST /api/auth/login
@@ -47,7 +60,7 @@ export async function loginController(request: FastifyRequest, reply: FastifyRep
           action: 'LOGIN_FAILED',
           entity: 'SESSION',
           entityLabel: credentials.email,
-          metadata: { motivo: error.statusCode === 403 ? 'conta desativada' : 'credenciais inválidas' },
+          metadata: { motivo: refusalReason(error) },
         },
       );
     }
@@ -67,6 +80,93 @@ export async function loginController(request: FastifyRequest, reply: FastifyRep
  * Responde 204 mesmo se algo falhar do lado do servidor: não existe cenário em
  * que valha impedir alguém de sair.
  */
+/**
+ * Login com Google.
+ *
+ * 1. confirma no servidor do Supabase a quem pertence o token (nada do que o
+ *    navegador diz é aceito por si só);
+ * 2. encontra, vincula ou cria a conta do sistema;
+ * 3. só emite a sessão se a conta estiver ATIVA.
+ *
+ * O primeiro acesso de alguém novo termina no passo 3 com "aguardando
+ * aprovação" — de propósito: a conta existe, mas só entra depois que um
+ * administrador a aprovar.
+ */
+export async function googleLoginController(request: FastifyRequest, reply: FastifyReply) {
+  const { accessToken } = validate(googleLoginSchema, request.body);
+  const origin = requestOrigin(request);
+
+  const identity = await verifyGoogleSession(accessToken);
+  const { user, created, linked } = await resolveGoogleAccount(identity);
+  const { status, ...sessionUser } = user;
+
+  if (created) {
+    await recordAudit(
+      { ...sessionUser, ...origin },
+      {
+        action: 'CREATE',
+        entity: 'USER',
+        entityId: user.id,
+        entityLabel: user.email,
+        metadata: { origem: 'Conta Google', situacao: 'aguardando aprovação' },
+      },
+    );
+  }
+
+  if (linked) {
+    await recordAudit(
+      { ...sessionUser, ...origin },
+      {
+        action: 'UPDATE',
+        entity: 'USER',
+        entityId: user.id,
+        entityLabel: user.email,
+        metadata: { alteracao: 'Conta Google vinculada ao cadastro existente' },
+      },
+    );
+  }
+
+  try {
+    assertCanSignIn(status);
+  } catch (error) {
+    if (isAppError(error)) {
+      await recordAudit(
+        { email: user.email, ...origin },
+        {
+          action: 'LOGIN_FAILED',
+          entity: 'SESSION',
+          entityLabel: user.email,
+          metadata: { metodo: 'Google', motivo: refusalReason(error) },
+        },
+      );
+
+      // Primeiro acesso: a mensagem confirma que o cadastro foi recebido.
+      if (created && error.code === 'ACCOUNT_PENDING') {
+        throw AppError.accountPending(
+          'Cadastro recebido! Seu acesso está aguardando aprovação do administrador.',
+        );
+      }
+    }
+
+    throw error;
+  }
+
+  const result = issueSession(request.server, sessionUser);
+
+  await recordAudit(
+    { ...result.user, ...origin },
+    {
+      action: 'LOGIN',
+      entity: 'SESSION',
+      entityId: result.user.id,
+      entityLabel: result.user.email,
+      metadata: { metodo: 'Google' },
+    },
+  );
+
+  return reply.status(200).send(ok(result));
+}
+
 export async function logoutController(request: FastifyRequest, reply: FastifyReply) {
   const user = request.currentUser;
 

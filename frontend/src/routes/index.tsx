@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from '@/layouts/AppLayout';
 import { AuthLayout } from '@/layouts/AuthLayout';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { AuthCallbackPage } from '@/pages/AuthCallbackPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ClientDetailPage } from '@/pages/clients/ClientDetailPage';
@@ -16,6 +17,7 @@ import { InvoiceDetailPage } from '@/pages/invoices/InvoiceDetailPage';
 import { InvoiceFormPage } from '@/pages/invoices/InvoiceFormPage';
 import { InvoicesListPage } from '@/pages/invoices/InvoicesListPage';
 import { PaymentsListPage } from '@/pages/payments/PaymentsListPage';
+import { SignUpPage } from '@/pages/SignUpPage';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
 import { PublicOnlyRoute } from '@/routes/PublicOnlyRoute';
 
@@ -66,8 +68,13 @@ export function AppRoutes() {
       <Route element={<PublicOnlyRoute />}>
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/criar-conta" element={<SignUpPage />} />
         </Route>
       </Route>
+
+      {/* Retorno do login com Google. Fora dos dois guards: ela mesma decide
+          para onde ir — painel ou login com o motivo. */}
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
       {/* --- Autenticadas --------------------------------------------- */}
       <Route element={<ProtectedRoute />}>

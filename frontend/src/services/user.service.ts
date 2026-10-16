@@ -9,6 +9,7 @@ import type {
   User,
   UserListFilters,
   UserRole,
+  UserStatus,
 } from '@/types/user';
 
 /** Monta a query string ignorando filtros vazios. */
@@ -49,8 +50,12 @@ export async function updateUserRole(id: string, role: UserRole): Promise<User> 
   return apiRequest<User>(`/users/${id}/role`, { method: 'PATCH', body: { role } });
 }
 
-export async function updateUserStatus(id: string, active: boolean): Promise<User> {
-  return apiRequest<User>(`/users/${id}/status`, { method: 'PATCH', body: { active } });
+/** Aprovar ou desbloquear (ACTIVE) e bloquear (BLOCKED). */
+export async function updateUserStatus(
+  id: string,
+  status: Exclude<UserStatus, 'PENDING'>,
+): Promise<User> {
+  return apiRequest<User>(`/users/${id}/status`, { method: 'PATCH', body: { status } });
 }
 
 export async function resetUserPassword(id: string): Promise<ResetPasswordResult> {

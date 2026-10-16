@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import {
+  googleLoginController,
   loginController,
   logoutController,
   meController,
@@ -35,6 +36,24 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
    * A ordem importa: `authorize` depende do `currentUser` que `authenticate`
    * coloca na requisição.
    */
+  /**
+   * Login com Google. Recebe o token do Supabase Auth obtido pela interface,
+   * confirma a identidade no servidor do Supabase e devolve a MESMA sessão do
+   * login por senha. Mesmo limite de tentativas do login por senha.
+   */
+  app.post(
+    '/auth/google',
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    googleLoginController,
+  );
+
   app.get('/auth/me', { preHandler: [app.authenticate] }, meController);
 
   /**

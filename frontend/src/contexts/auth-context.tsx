@@ -1,8 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { UNAUTHORIZED_EVENT } from '@/services/api';
+import { ApiError, UNAUTHORIZED_EVENT } from '@/services/api';
 import {
+  clearGoogleSession,
   fetchCurrentUser,
   login as loginRequest,
   logout as logoutRequest,
@@ -15,6 +16,14 @@ export interface AuthContextValue {
   /** Verdadeiro enquanto a sessão guardada está sendo revalidada na API. */
   isLoading: boolean;
   isAuthenticated: boolean;
+  /**
+   * A sessão guardada não pôde ser conferida por um motivo que NÃO é ela ser
+   * inválida: API fora do ar, banco indisponível, limite de requisições. O
+   * token é mantido; as rotas protegidas oferecem "Tentar novamente" em vez de
+   * mandar para o login.
+   */
+  sessionError: string | null;
+  retrySession: () => void;
   signIn: (credentials: LoginCredentials) => Promise<void>;
   signOut: () => void;
   /**
@@ -52,6 +61,7 @@ export const AuthContext = createContext<AuthContextValue | undefined>(undefined
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const signOut = useCallback(() => {
@@ -67,9 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     tokenStorage.clear();
     setUser(null);
+    setSessionError(null);
     // Impede que os dados do usuário anterior apareçam por um instante se
     // outra pessoa entrar em seguida na mesma máquina.
     queryClient.clear();
+    // Resto de sessão do Supabase (login com Google), se houver.
+    void clearGoogleSession();
   }, [queryClient]);
 
   /**
@@ -78,33 +91,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * O token no localStorage não é confiável por si só — pode estar expirado ou
    * ter sido revogado. Quem decide é a API, via /auth/me.
    */
-  useEffect(() => {
-    let cancelled = false;
-
-    async function restoreSession(): Promise<void> {
+  const restoreSession = useCallback(
+    async (isCancelled: () => boolean = () => false): Promise<void> => {
       if (!tokenStorage.get()) {
-        if (!cancelled) setIsLoading(false);
+        if (!isCancelled()) setIsLoading(false);
         return;
       }
 
+      setIsLoading(true);
+      setSessionError(null);
+
       try {
         const currentUser = await fetchCurrentUser();
-        if (!cancelled) setUser(currentUser);
-      } catch {
-        // Token inválido, expirado ou API fora do ar: segue deslogado.
-        tokenStorage.clear();
-        if (!cancelled) setUser(null);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
+        if (!isCancelled()) setUser(currentUser);
+      } catch (error) {
+        if (isCancelled()) return;
 
-    void restoreSession();
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          // A API recusou a sessão: token vencido, revogado, conta bloqueada.
+          tokenStorage.clear();
+          setUser(null);
+        } else {
+          // API fora do ar, banco indisponível, muitas requisições: a sessão
+          // pode muito bem ser válida. Deslogar aqui obrigaria a pessoa a
+          // entrar de novo só porque o servidor piscou durante um F5.
+          setSessionError(
+            error instanceof ApiError && error.code !== 'NETWORK_ERROR'
+              ? error.message
+              : 'Não foi possível conectar ao servidor para verificar sua sessão.',
+          );
+        }
+      } finally {
+        if (!isCancelled()) setIsLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void restoreSession(() => cancelled);
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [restoreSession]);
+
+  const retrySession = useCallback(() => {
+    void restoreSession();
+  }, [restoreSession]);
 
   /**
    * Encerra a sessão quando qualquer requisição receber 401.
@@ -116,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleUnauthorized = (): void => {
       tokenStorage.clear();
       setUser(null);
+      setSessionError(null);
       queryClient.clear();
     };
 
@@ -126,11 +162,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (credentials: LoginCredentials): Promise<void> => {
     const result = await loginRequest(credentials);
     tokenStorage.set(result.token);
+    setSessionError(null);
     setUser(result.user);
   }, []);
 
   const renewSession = useCallback((session: LoginResponse): void => {
     tokenStorage.set(session.token);
+    setSessionError(null);
     setUser(session.user);
   }, []);
 
@@ -143,12 +181,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       isAuthenticated: user !== null,
+      sessionError,
+      retrySession,
       signIn,
       signOut,
       renewSession,
       updateCurrentUser,
     }),
-    [user, isLoading, signIn, signOut, renewSession, updateCurrentUser],
+    [
+      user,
+      isLoading,
+      sessionError,
+      retrySession,
+      signIn,
+      signOut,
+      renewSession,
+      updateCurrentUser,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

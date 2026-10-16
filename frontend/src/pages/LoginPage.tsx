@@ -1,11 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, Eye, EyeOff, Loader2, LogIn } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Info, Loader2, LogIn } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { Logo } from '@/components/brand/Logo';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,8 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
+import { useGoogleLoginAvailable } from '@/hooks/use-google-login';
+import { isLoginNotice } from '@/lib/auth-notice';
 import { ApiError } from '@/services/api';
 
 /**
@@ -67,6 +70,12 @@ export function LoginPage() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const googleAvailable = useGoogleLoginAvailable();
+
+  // Aviso de quem voltou do Google sem entrar (cancelou, aguardando aprovação,
+  // conta bloqueada...). Vem no `state` da navegação, nunca da URL.
+  const notice = (location.state as { notice?: unknown } | null)?.notice;
+  const loginNotice = isLoginNotice(notice) ? notice : null;
 
   // Se o usuário caiu no login ao tentar abrir uma página protegida, volta
   // para ela depois de entrar, em vez de despejá-lo sempre no painel.
@@ -122,6 +131,13 @@ export function LoginPage() {
           Informe suas credenciais para acessar o painel.
         </p>
       </div>
+
+      {loginNotice && !formError && (
+        <Alert variant={loginNotice.tone === 'error' ? 'destructive' : 'default'} className="mb-6">
+          {loginNotice.tone === 'error' ? <AlertCircle /> : <Info />}
+          <AlertDescription>{loginNotice.message}</AlertDescription>
+        </Alert>
+      )}
 
       {formError && (
         <Alert variant="destructive" className="mb-6">
@@ -210,6 +226,27 @@ export function LoginPage() {
           </Button>
         </form>
       </Form>
+
+      {/* O Google só aparece quando o login por ele está ligado de verdade
+          (ver use-google-login.ts): sem configuração, a tela fica como era. */}
+      {googleAvailable && (
+        <>
+          <div className="my-6 flex items-center gap-3" aria-hidden="true">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">ou</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <GoogleSignInButton disabled={isSubmitting} />
+
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            Não possui uma conta?{' '}
+            <Link to="/criar-conta" className="font-medium text-brand-700 hover:underline">
+              Criar conta
+            </Link>
+          </p>
+        </>
+      )}
 
       <p className="mt-8 text-center text-xs text-muted-foreground">
         Esqueceu a senha? Solicite a redefinição a um administrador.

@@ -3,6 +3,18 @@ import type { UserRole } from '@/types/auth';
 export type { UserRole };
 
 /**
+ * ACTIVE entra; PENDING se cadastrou pelo Google e aguarda aprovação; BLOCKED
+ * foi bloqueado por um administrador.
+ */
+export type UserStatus = 'ACTIVE' | 'PENDING' | 'BLOCKED';
+
+export const USER_STATUS_LABELS: Record<UserStatus, string> = {
+  ACTIVE: 'Ativo',
+  PENDING: 'Aguardando aprovação',
+  BLOCKED: 'Bloqueado',
+};
+
+/**
  * Usuário como a API o devolve.
  *
  * Não existe campo de senha aqui, e isso é intencional: o tipo espelha o
@@ -15,9 +27,13 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  active: boolean;
+  status: UserStatus;
   /** Senha provisória em uso: a pessoa precisa trocá-la no próximo acesso. */
   mustChangePassword: boolean;
+  /** Foto do perfil Google, quando houver. */
+  avatarUrl: string | null;
+  /** A conta entra (também) com o Google. */
+  googleLinked: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -25,7 +41,7 @@ export interface User {
 export interface UserListFilters {
   search?: string;
   role?: UserRole;
-  status?: 'active' | 'inactive';
+  status?: UserStatus;
   sort?: 'name' | 'email' | 'role' | 'createdAt';
   order?: 'asc' | 'desc';
   page?: number;
@@ -45,7 +61,6 @@ export interface CreateUserPayload {
   email: string;
   role: UserRole;
   password: string;
-  active: boolean;
 }
 
 export interface UpdateUserPayload {

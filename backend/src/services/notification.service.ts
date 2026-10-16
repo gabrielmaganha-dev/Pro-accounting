@@ -3,6 +3,7 @@ import {
   NotificationSeverity,
   NotificationType,
   type Prisma,
+  UserStatus,
 } from '@prisma/client';
 
 import { prisma } from '../config/prisma.js';
@@ -84,9 +85,10 @@ export async function syncNotifications(force = false): Promise<void> {
   const reference = today();
 
   const [recipients, overdue, dueSoon, expiring] = await Promise.all([
-    // Só usuários ativos: quem foi desativado não deve acumular pendências.
+    // Só usuários ativos: quem está bloqueado ou aguardando aprovação não deve
+    // acumular pendências.
     prisma.user.findMany({
-      where: { active: true },
+      where: { status: UserStatus.ACTIVE },
       select: { id: true, name: true, email: true },
     }),
 

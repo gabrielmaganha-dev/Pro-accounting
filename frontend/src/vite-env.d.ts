@@ -8,6 +8,10 @@
  */
 interface ImportMetaEnv {
   readonly VITE_API_URL?: string;
+  /** Endereço do projeto Supabase — só o login com Google usa. */
+  readonly VITE_SUPABASE_URL?: string;
+  /** Chave PÚBLICA (anon/publishable) do Supabase. Nunca a service role. */
+  readonly VITE_SUPABASE_ANON_KEY?: string;
 }
 
 interface ImportMeta {

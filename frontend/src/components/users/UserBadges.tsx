@@ -2,6 +2,7 @@ import { ShieldCheck, User } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { ROLE_LABELS, type UserRole } from '@/types/auth';
+import { USER_STATUS_LABELS, type UserStatus } from '@/types/user';
 
 /**
  * Selos de perfil e situação do usuário.
@@ -26,14 +27,29 @@ export function UserRoleBadge({ role }: { role: UserRole }) {
   );
 }
 
-export function UserStatusBadge({ active }: { active: boolean }) {
+const STATUS_STYLE: Record<UserStatus, { variant: 'success' | 'warning' | 'neutral'; dot: string }> =
+  {
+    ACTIVE: { variant: 'success', dot: 'bg-emerald-600' },
+    PENDING: { variant: 'warning', dot: 'bg-amber-500' },
+    BLOCKED: { variant: 'neutral', dot: 'bg-slate-400' },
+  };
+
+export function UserStatusBadge({ status }: { status: UserStatus }) {
+  const style = STATUS_STYLE[status];
+
   return (
-    <Badge variant={active ? 'success' : 'neutral'}>
-      <span
-        aria-hidden="true"
-        className={`size-1.5 rounded-full ${active ? 'bg-emerald-600' : 'bg-slate-400'}`}
-      />
-      {active ? 'Ativo' : 'Inativo'}
+    <Badge variant={style.variant}>
+      <span aria-hidden="true" className={`size-1.5 rounded-full ${style.dot}`} />
+      {USER_STATUS_LABELS[status]}
+    </Badge>
+  );
+}
+
+/** A conta entra (também) com o Google. */
+export function GoogleAccountBadge() {
+  return (
+    <Badge variant="outline" title="Esta conta entra com uma Conta Google.">
+      Google
     </Badge>
   );
 }

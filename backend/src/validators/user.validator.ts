@@ -62,8 +62,9 @@ export const createUserSchema = z.object({
   email: emailSchema,
   role: roleSchema.default('EMPLOYEE'),
   password: passwordSchema,
-  /// Ausente = conta já nasce ativa, que é o caso comum.
-  active: z.boolean().default(true),
+  /// Ausente = conta já nasce ativa, que é o caso comum. PENDING não se
+  /// escolhe: é o estado de quem se cadastrou sozinho, pelo Google.
+  status: z.enum(['ACTIVE', 'BLOCKED']).default('ACTIVE'),
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
@@ -84,8 +85,12 @@ export const updateUserRoleSchema = z.object({
   role: roleSchema,
 });
 
+/**
+ * Aprovar ou desbloquear (ACTIVE) e bloquear (BLOCKED). PENDING não é destino
+ * de nenhuma ação: é só o estado de quem acabou de se cadastrar.
+ */
 export const updateUserStatusSchema = z.object({
-  active: z.boolean({
+  status: z.enum(['ACTIVE', 'BLOCKED'], {
     required_error: 'Informe a nova situação.',
     invalid_type_error: 'Situação inválida.',
   }),
@@ -129,9 +134,8 @@ export const userIdParamSchema = z.object({
 export const listUsersQuerySchema = z.object({
   search: z.string().trim().max(180).optional(),
   role: roleSchema.optional(),
-  /// Texto e não booleano: query string não tem tipo, `?status=active` é o que
-  /// chega. `all` é explícito para o filtro "Todas as situações".
-  status: z.enum(['active', 'inactive']).optional(),
+  /// Ausente = todas as situações.
+  status: z.enum(['ACTIVE', 'PENDING', 'BLOCKED']).optional(),
 
   sort: z.enum(['name', 'email', 'role', 'createdAt']).default('createdAt'),
   order: z.enum(['asc', 'desc']).default('desc'),

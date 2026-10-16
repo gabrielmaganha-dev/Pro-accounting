@@ -1,4 +1,4 @@
-import { type Prisma, UserRole } from '@prisma/client';
+import { type Prisma, UserRole, UserStatus } from '@prisma/client';
 
 import { prisma } from '../config/prisma.js';
 import type { AuthenticatedUser } from '../types/auth.js';
@@ -24,19 +24,33 @@ import type {
  * `password` não aparece aqui e não deve ser acrescentado por conveniência.
  * Quando o hash é necessário (login, troca de senha), a consulta pede o campo
  * explicitamente, isolada, e descarta o resultado em seguida.
+ *
+ * `authUserId` entra só para virar `googleLinked` em `toPublicUser`: o id do
+ * Supabase Auth não sai da API.
  */
-export const USER_SELECT = {
+const USER_SELECT = {
   id: true,
   name: true,
   email: true,
   role: true,
-  active: true,
+  status: true,
   mustChangePassword: true,
+  avatarUrl: true,
+  authUserId: true,
   createdAt: true,
   updatedAt: true,
 } as const satisfies Prisma.UserSelect;
 
-export type PublicUser = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
+type UserRow = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
+
+export type PublicUser = Omit<UserRow, 'authUserId'> & {
+  /** A conta entra (também) com o Google. */
+  googleLinked: boolean;
+};
+
+function toPublicUser({ authUserId, ...rest }: UserRow): PublicUser {
+  return { ...rest, googleLinked: authUserId !== null };
+}
 
 export interface PaginatedResult<T> {
   items: T[];
@@ -98,7 +112,7 @@ async function withActiveAdminGuarantee<T>(
     const result = await write(tx);
 
     const remaining = await tx.user.count({
-      where: { role: UserRole.ADMIN, active: true },
+      where: { role: UserRole.ADMIN, status: UserStatus.ACTIVE },
     });
 
     if (remaining === 0) {
@@ -143,7 +157,7 @@ export async function listUsers(query: ListUsersQuery): Promise<PaginatedResult<
   ]);
 
   return {
-    items,
+    items: items.map(toPublicUser),
     page: query.page,
     pageSize: query.pageSize,
     total,
@@ -155,7 +169,7 @@ function buildWhere(query: ListUsersQuery): Prisma.UserWhereInput {
   const where: Prisma.UserWhereInput = {};
 
   if (query.role) where.role = query.role;
-  if (query.status) where.active = query.status === 'active';
+  if (query.status) where.status = query.status;
 
   if (query.search) {
     const term = query.search.trim();
@@ -176,7 +190,7 @@ export async function getUserById(id: string): Promise<PublicUser> {
     throw AppError.notFound('Usuário não encontrado.');
   }
 
-  return user;
+  return toPublicUser(user);
 }
 
 /**
@@ -203,12 +217,12 @@ export async function createUser(input: CreateUserInput): Promise<PublicUser> {
 
   const password = await hashPassword(input.password);
 
-  return prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       name: input.name,
       email: input.email,
       role: input.role,
-      active: input.active,
+      status: input.status,
       password,
       // A senha inicial foi escolhida por um administrador, que portanto a
       // conhece. A conta nasce marcada para troca no primeiro acesso pelo
@@ -219,6 +233,8 @@ export async function createUser(input: CreateUserInput): Promise<PublicUser> {
     },
     select: USER_SELECT,
   });
+
+  return toPublicUser(user);
 }
 
 export async function updateUser(id: string, input: UpdateUserInput): Promise<PublicUser> {
@@ -228,7 +244,7 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Pu
     await assertEmailIsFree(input.email, id);
   }
 
-  return prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -236,6 +252,8 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Pu
     },
     select: USER_SELECT,
   });
+
+  return toPublicUser(updated);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,35 +275,49 @@ export async function setUserRole(
 
   if (user.role === role) return user;
 
-  return withActiveAdminGuarantee('rebaixar este usuário', (tx) =>
+  const updated = await withActiveAdminGuarantee('rebaixar este usuário', (tx) =>
     tx.user.update({ where: { id }, data: { role }, select: USER_SELECT }),
   );
+
+  return toPublicUser(updated);
 }
 
+export interface StatusChange {
+  user: PublicUser;
+  previousStatus: UserStatus;
+}
+
+/**
+ * Aprovar (PENDING → ACTIVE), bloquear (→ BLOCKED) e desbloquear
+ * (BLOCKED → ACTIVE). Voltar alguém para PENDING não é uma ação: pendente é só
+ * o estado de quem acabou de se cadastrar.
+ */
 export async function setUserStatus(
   id: string,
-  active: boolean,
+  status: 'ACTIVE' | 'BLOCKED',
   actor: AuthenticatedUser,
-): Promise<PublicUser> {
-  assertNotSelf(id, actor, 'Você não pode desativar a própria conta.');
+): Promise<StatusChange> {
+  assertNotSelf(id, actor, 'Você não pode alterar a situação da própria conta.');
 
   const user = await getUserById(id);
 
-  if (user.active === active) return user;
+  if (user.status === status) return { user, previousStatus: user.status };
 
-  return withActiveAdminGuarantee('desativar este usuário', (tx) =>
+  const updated = await withActiveAdminGuarantee('bloquear este usuário', (tx) =>
     tx.user.update({
       where: { id },
       data: {
-        active,
-        // Desativar precisa cortar o acesso AGORA. Sem isto, quem já estava
+        status,
+        // Bloquear precisa cortar o acesso AGORA. Sem isto, quem já estava
         // logado seguiria trabalhando até o token expirar — podendo lançar
         // pagamentos horas depois de ter sido desligado.
-        ...(active ? {} : { passwordChangedAt: new Date() }),
+        ...(status === UserStatus.BLOCKED ? { passwordChangedAt: new Date() } : {}),
       },
       select: USER_SELECT,
     }),
   );
+
+  return { user: toPublicUser(updated), previousStatus: user.status };
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +353,7 @@ export async function resetUserPassword(
 
   const temporaryPassword = generateTemporaryPassword();
 
-  const user = await prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id },
     data: {
       password: await hashPassword(temporaryPassword),
@@ -334,7 +366,7 @@ export async function resetUserPassword(
     select: USER_SELECT,
   });
 
-  return { user, temporaryPassword };
+  return { user: toPublicUser(updated), temporaryPassword };
 }
 
 /**
@@ -367,6 +399,15 @@ export async function updateOwnProfile(
   const emailChanged = input.email !== current.email;
 
   if (emailChanged) {
+    // Conta só-Google não tem senha para confirmar a troca — e o e-mail dela é
+    // o da Conta Google, verificado lá. Um administrador pode alterá-lo.
+    if (current.password === null) {
+      throw AppError.validation(
+        'O e-mail desta conta vem da Conta Google. Para alterá-lo, procure um administrador.',
+        [{ field: 'email', message: 'E-mail definido pela Conta Google.' }],
+      );
+    }
+
     if (!input.currentPassword) {
       throw AppError.validation(
         'Para alterar o e-mail de acesso, confirme a sua senha atual.',
@@ -383,11 +424,13 @@ export async function updateOwnProfile(
     await assertEmailIsFree(input.email, actor.id);
   }
 
-  return prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id: actor.id },
     data: { name: input.name, email: input.email },
     select: USER_SELECT,
   });
+
+  return toPublicUser(updated);
 }
 
 export async function changeOwnPassword(
@@ -404,13 +447,21 @@ export async function changeOwnPassword(
     throw AppError.unauthorized('Sessão expirada. Faça login novamente.');
   }
 
+  // Conta que entra só com o Google não tem senha local para "trocar". Criar
+  // uma é decisão de um administrador, pelo "Redefinir acesso".
+  if (stored.password === null) {
+    throw AppError.validation(
+      'Sua conta entra com o Google e não tem senha local. Para criar uma, peça ao administrador para redefinir seu acesso.',
+    );
+  }
+
   const matches = await verifyPassword(input.currentPassword, stored.password);
 
   if (!matches) {
     throw AppError.unauthorized('A senha atual está incorreta.');
   }
 
-  return prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id: actor.id },
     data: {
       password: await hashPassword(input.newPassword),
@@ -419,6 +470,8 @@ export async function changeOwnPassword(
     },
     select: USER_SELECT,
   });
+
+  return toPublicUser(updated);
 }
 
 // ---------------------------------------------------------------------------

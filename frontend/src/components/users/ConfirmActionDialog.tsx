@@ -41,12 +41,12 @@ const COPY: Record<
   { title: (name: string) => string; body: string; button: string; destructive: boolean }
 > = {
   deactivate: {
-    title: (name) => `Inativar ${name}?`,
+    title: (name) => `Bloquear ${name}?`,
     body:
       'A pessoa perde o acesso imediatamente, inclusive nas sessões que estiverem abertas agora. ' +
       'Os pagamentos e alterações que ela registrou continuam no histórico, com o nome dela. ' +
-      'A conta pode ser reativada depois.',
-    button: 'Inativar',
+      'A conta pode ser desbloqueada depois.',
+    button: 'Bloquear',
     destructive: true,
   },
   demote: {

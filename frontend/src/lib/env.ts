@@ -25,8 +25,22 @@ if (!configuredApiUrl && import.meta.env.DEV) {
   );
 }
 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/, '');
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+
 export const env = {
   /** Base da API, sem barra no final (as rotas já começam com "/"). */
   apiUrl: (configuredApiUrl || DEFAULT_API_URL).replace(/\/+$/, ''),
   isDevelopment: import.meta.env.DEV,
+  /**
+   * Login com Google, via Supabase Auth. Nulo quando não configurado — o
+   * botão "Continuar com Google" simplesmente não aparece, e o login por
+   * e-mail e senha segue igual.
+   *
+   * As duas são públicas por natureza (vão no JavaScript do navegador): o
+   * endereço do projeto e a chave anon/publishable. Segredo do Supabase
+   * (service role, JWT secret) nunca entra aqui.
+   */
+  supabase:
+    supabaseUrl && supabaseAnonKey ? { url: supabaseUrl, anonKey: supabaseAnonKey } : null,
 } as const;

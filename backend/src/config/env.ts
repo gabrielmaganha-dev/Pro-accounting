@@ -69,6 +69,24 @@ const envSchema = z.object({
   ADMIN_NAME: z.string().min(1).optional(),
   ADMIN_EMAIL: z.string().email('precisa ser um e-mail válido').optional(),
   ADMIN_PASSWORD: z.string().min(8, 'deve ter no mínimo 8 caracteres').optional(),
+
+  // --- Login com Google (Supabase Auth) -------------------------------------
+  /**
+   * Endereço do projeto Supabase e a chave PÚBLICA dele (anon/publishable).
+   *
+   * As duas são públicas por natureza — a interface também as recebe. A API
+   * as usa para perguntar ao servidor do Supabase se o token de quem voltou do
+   * Google é legítimo. Nenhum segredo do Supabase (service role, JWT secret)
+   * é necessário ou lido.
+   *
+   * Ausentes = login com Google desligado; o login por e-mail e senha não
+   * depende delas.
+   */
+  SUPABASE_URL: z
+    .string()
+    .url('deve ser o endereço do projeto (https://<ref>.supabase.co)')
+    .optional(),
+  SUPABASE_ANON_KEY: z.string().min(20, 'chave pública do Supabase incompleta').optional(),
 });
 
 /**
@@ -97,9 +115,33 @@ const databaseUrl =
   definedEnv.POSTGRES_PRISMA_URL ||
   definedEnv.STORAGE_POSTGRES_URL;
 
+/**
+ * A integração da Vercel com o Supabase também injeta o endereço e a chave
+ * pública do projeto, com os nomes dela (e, no projeto, com o prefixo
+ * STORAGE_). Aceitá-los aqui evita cadastrar a mesma informação duas vezes.
+ * Chaves "publishable" são o nome novo da chave anon — mesma função.
+ */
+const supabaseUrl =
+  definedEnv.SUPABASE_URL ||
+  definedEnv.STORAGE_SUPABASE_URL ||
+  definedEnv.NEXT_PUBLIC_SUPABASE_URL ||
+  definedEnv.STORAGE_NEXT_PUBLIC_SUPABASE_URL;
+
+const supabaseAnonKey =
+  definedEnv.SUPABASE_ANON_KEY ||
+  definedEnv.STORAGE_SUPABASE_ANON_KEY ||
+  definedEnv.SUPABASE_PUBLISHABLE_KEY ||
+  definedEnv.STORAGE_SUPABASE_PUBLISHABLE_KEY ||
+  definedEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  definedEnv.STORAGE_NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  definedEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  definedEnv.STORAGE_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
 const parsed = envSchema.safeParse({
   ...definedEnv,
   ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+  ...(supabaseUrl ? { SUPABASE_URL: supabaseUrl } : {}),
+  ...(supabaseAnonKey ? { SUPABASE_ANON_KEY: supabaseAnonKey } : {}),
 });
 
 if (!parsed.success) {
@@ -229,6 +271,22 @@ if (crossIssues.length > 0) {
   process.exit(1);
 }
 
+/**
+ * Login com Google ligado só com as duas peças. Uma sem a outra é
+ * configuração pela metade: avisa no log, mas não derruba a API — o login por
+ * e-mail e senha continua funcionando.
+ */
+const supabase =
+  raw.SUPABASE_URL && raw.SUPABASE_ANON_KEY
+    ? { url: raw.SUPABASE_URL.replace(/\/+$/, ''), anonKey: raw.SUPABASE_ANON_KEY }
+    : null;
+
+if (!supabase && (raw.SUPABASE_URL || raw.SUPABASE_ANON_KEY)) {
+  console.warn(
+    '[Pro Accounting] Login com Google desligado: defina SUPABASE_URL e SUPABASE_ANON_KEY juntas.',
+  );
+}
+
 export const env = {
   ...raw,
   isDevelopment: raw.NODE_ENV === 'development',
@@ -236,6 +294,7 @@ export const env = {
   isTest: raw.NODE_ENV === 'test',
   trustProxy: raw.TRUST_PROXY === 'true',
   corsOrigins,
+  supabase,
 } as const;
 
 export type Env = typeof env;

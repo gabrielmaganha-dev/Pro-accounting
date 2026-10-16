@@ -200,12 +200,12 @@ describe('sem autenticação', () => {
     }
   });
 
-  it('funcionário desativado perde acesso até às rotas de leitura', async () => {
-    await prisma.user.update({ where: { id: employee.id }, data: { active: false } });
+  it('funcionário bloqueado perde acesso até às rotas de leitura', async () => {
+    await prisma.user.update({ where: { id: employee.id }, data: { status: 'BLOCKED' } });
 
     const response = await request(app, 'GET', '/api/clients', employee.token);
 
-    expect(response.statusCode).toBe(403);
-    expect(body(response).error.message).toMatch(/desativado/);
+    expect(response.statusCode).toBe(401);
+    expect(body(response).error.message).toMatch(/bloqueada/);
   });
 });

@@ -72,6 +72,10 @@ export default defineConfig({
       // O mínimo aceito — o custo alto só atrasaria a suíte, sem testar nada.
       BCRYPT_SALT_ROUNDS: '10',
       CORS_ORIGIN: 'http://localhost:5173',
+      // Login com Google: o servidor do Supabase é simulado nos testes
+      // (`fetch` substituído em tests/api/google-auth.test.ts).
+      SUPABASE_URL: 'http://supabase.teste',
+      SUPABASE_ANON_KEY: 'chave-publica-de-teste-0123456789',
       TZ: 'America/Sao_Paulo',
     },
   },

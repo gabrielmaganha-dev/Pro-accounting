@@ -34,6 +34,17 @@ enum UserRole {
   EMPLOYEE
 }
 
+/// Situação da conta. Só ACTIVE autentica.
+///
+/// PENDING é o estado de quem se cadastrou sozinho (pelo Google) e ainda
+/// não foi aprovado por um administrador; BLOCKED é a conta desligada por um
+/// administrador. Os dois continuam referenciáveis pelo histórico.
+enum UserStatus {
+  ACTIVE
+  PENDING
+  BLOCKED
+}
+
 enum ClientStatus {
   ACTIVE
   INACTIVE
@@ -156,13 +167,26 @@ model User {
   email String @unique @db.VarChar(180)
 
   /// Hash bcrypt. O texto puro da senha nunca é persistido nem logado.
-  password String @db.VarChar(255)
+  ///
+  /// Nulo para quem entra só com o Google: a conta não tem senha local, e o
+  /// login por e-mail e senha é recusado para ela. A constraint
+  /// `users_has_login_method` garante que toda conta tenha ao menos um meio
+  /// de entrar.
+  password String? @db.VarChar(255)
+
+  /// Id do usuário no Supabase Auth (o `sub` do token), preenchido quando a
+  /// conta entra pelo Google. É ESTE vínculo que identifica a conta nos
+  /// logins seguintes — e não o e-mail, que pode mudar.
+  authUserId String? @unique @map("auth_user_id") @db.Uuid
+
+  /// Foto do perfil Google, quando houver. Só endereços do próprio Google.
+  avatarUrl String? @map("avatar_url") @db.VarChar(500)
 
   role UserRole @default(EMPLOYEE)
 
-  /// Desativação lógica. Usuário inativo não autentica, mas continua
-  /// referenciável pelos pagamentos que registrou.
-  active Boolean @default(true)
+  /// Só ACTIVE autentica. PENDING e BLOCKED continuam referenciáveis pelos
+  /// pagamentos e pela auditoria que a conta registrou.
+  status UserStatus @default(ACTIVE)
 
   /// Verdadeiro enquanto a senha em uso for a temporária gerada por um
   /// administrador ao resetar o acesso. É o que impede que uma senha conhecida
@@ -186,7 +210,7 @@ model User {
   auditLogs          AuditLog[]       @relation("AuditLogAuthor")
 
   @@index([role])
-  @@index([active])
+  @@index([status])
   @@map("users")
 }
 
@@ -325,7 +349,7 @@ model Settings {
   updatedAt DateTime @updatedAt @map("updated_at")
   /// Quem salvou por último. SetNull para a configuração sobreviver à remoção
   /// do usuário que a alterou.
-  updatedBy String? @map("updated_by")
+  updatedBy String?  @map("updated_by")
 
   updatedByUser User? @relation("SettingsUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
@@ -508,8 +532,8 @@ model Invoice {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  client   Client           @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  client        Client           @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  contract      Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   payments      Payment[]
   history       InvoiceHistory[]
   notifications Notification[]

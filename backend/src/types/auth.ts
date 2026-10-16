@@ -47,6 +47,15 @@ export interface AuthenticatedUser {
    */
   mustChangePassword: boolean;
 
+  /** Foto do perfil Google, quando a conta entra com o Google. */
+  avatarUrl: string | null;
+
+  /**
+   * Se a conta tem senha local. Falso para quem entra só com o Google: a
+   * interface esconde a troca de senha, que exigiria a senha atual.
+   */
+  hasPassword: boolean;
+
   /**
    * Origem da requisição — preenchida pelo middleware de autenticação.
    *

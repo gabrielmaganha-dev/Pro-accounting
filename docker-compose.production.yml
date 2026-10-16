@@ -143,6 +143,10 @@ services:
       ADMIN_NAME: ${ADMIN_NAME:-Administrador}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Login com Google (opcional): endereço e chave PÚBLICA do projeto
+      # Supabase. Vazias = login com Google desligado (README, seção 17).
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -166,6 +170,10 @@ services:
       args:
         # Caminho relativo: interface e API saem pelo mesmo endereço.
         VITE_API_URL: /api
+        # Login com Google (opcional) — as mesmas duas da API, públicas por
+        # natureza. Vazias = sem botão "Continuar com Google".
+        VITE_SUPABASE_URL: ${SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
     image: pro-accounting-web:${APP_VERSION:-latest}
     restart: unless-stopped
     environment:

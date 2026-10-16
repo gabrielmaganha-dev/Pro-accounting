@@ -12,6 +12,12 @@ export interface AuthUser {
    * o login.
    */
   mustChangePassword: boolean;
+
+  /** Foto do perfil Google, quando a conta entra com o Google. */
+  avatarUrl: string | null;
+
+  /** Falso para quem entra só com o Google: não há senha local para trocar. */
+  hasPassword: boolean;
 }
 
 export interface LoginCredentials {

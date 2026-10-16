@@ -106,11 +106,14 @@ export function useUpdateUserStatus() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, active }: { id: string; active: boolean }) => updateUserStatus(id, active),
+    mutationFn: ({ id, status }: { id: string; status: 'ACTIVE' | 'BLOCKED' }) =>
+      updateUserStatus(id, status),
     onSuccess: (user) => {
       void queryClient.invalidateQueries({ queryKey: userKeys.all });
       toast.success(
-        user.active ? `"${user.name}" reativado.` : `"${user.name}" inativado. O acesso foi encerrado.`,
+        user.status === 'ACTIVE'
+          ? `Acesso de "${user.name}" liberado.`
+          : `"${user.name}" bloqueado. O acesso foi encerrado.`,
       );
     },
     onError: (error) => {

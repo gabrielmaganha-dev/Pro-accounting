@@ -26,3 +26,18 @@ export const loginSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/**
+ * Login com Google: o token de acesso do Supabase Auth obtido pela interface
+ * ao fim do fluxo OAuth. Só formato aqui — a validade é decidida pelo próprio
+ * Supabase (ver google-identity.service.ts).
+ */
+export const googleLoginSchema = z.object({
+  accessToken: z
+    .string({ required_error: 'Token de acesso ausente.' })
+    .trim()
+    .min(20, 'Token de acesso inválido.')
+    .max(8192, 'Token de acesso inválido.'),
+});
+
+export type GoogleLoginInput = z.infer<typeof googleLoginSchema>;

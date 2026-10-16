@@ -41,7 +41,12 @@ let userSequence = 0;
  */
 export async function createUser(
   app: FastifyInstance,
-  options: { role?: UserRole; active?: boolean; password?: string; email?: string } = {},
+  options: {
+    role?: UserRole;
+    status?: 'ACTIVE' | 'PENDING' | 'BLOCKED';
+    password?: string;
+    email?: string;
+  } = {},
 ): Promise<TestUser> {
   userSequence += 1;
   const role = options.role ?? 'EMPLOYEE';
@@ -52,7 +57,7 @@ export async function createUser(
       email: options.email ?? `usuario${userSequence}@teste.com.br`,
       password: await hashPassword(options.password ?? DEFAULT_PASSWORD),
       role,
-      active: options.active ?? true,
+      status: options.status ?? 'ACTIVE',
     },
   });
 

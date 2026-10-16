@@ -12,7 +12,15 @@
 -- PostgreSQL do Docker e no de desenvolvimento.
 --
 -- Rodar de novo numa tabela que já tem RLS ligado não faz nada.
-ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;
+-- A tabela de controle do Prisma só existe nos bancos de verdade: no banco
+-- temporário que `prisma migrate dev` usa para conferir as migrations
+-- (shadow database) ela não é criada, e um ALTER direto quebraria o comando.
+DO $$
+BEGIN
+  IF to_regclass('public._prisma_migrations') IS NOT NULL THEN
+    ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $$;
 ALTER TABLE "users" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "clients" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "contracts" ENABLE ROW LEVEL SECURITY;

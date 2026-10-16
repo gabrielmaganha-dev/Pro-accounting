@@ -16,6 +16,12 @@ export type ApiErrorCode =
   /** Rota prevista no contrato, mas ainda sem implementação (ex.: export PDF). */
   | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR'
+  /** Conta cadastrada, aguardando a aprovação de um administrador. */
+  | 'ACCOUNT_PENDING'
+  /** Conta bloqueada por um administrador. */
+  | 'ACCOUNT_BLOCKED'
+  /** Um serviço externo (ex.: o Supabase, no login com Google) não respondeu. */
+  | 'SERVICE_UNAVAILABLE'
   /** Exclusivo do cliente: a requisição nem chegou ao servidor. */
   | 'NETWORK_ERROR';
 

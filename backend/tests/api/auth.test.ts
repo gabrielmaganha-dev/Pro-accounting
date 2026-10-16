@@ -42,6 +42,8 @@ describe('POST /api/auth/login', () => {
       email: 'admin@teste.com.br',
       role: 'ADMIN',
       mustChangePassword: false,
+      avatarUrl: null,
+      hasPassword: true,
     });
   });
 
@@ -74,17 +76,32 @@ describe('POST /api/auth/login', () => {
     expect(body(wrongPassword).error.message).toBe('E-mail ou senha incorretos.');
   });
 
-  it('usuário desativado com senha correta é barrado com 403', async () => {
-    await createUser(app, { email: 'inativo@teste.com.br', active: false });
+  it('usuário bloqueado com senha correta é barrado com 403 e a mensagem de bloqueio', async () => {
+    await createUser(app, { email: 'inativo@teste.com.br', status: 'BLOCKED' });
 
     const response = await login('inativo@teste.com.br', DEFAULT_PASSWORD);
 
     expect(response.statusCode).toBe(403);
-    expect(body(response).error.code).toBe('FORBIDDEN');
+    expect(body(response).error.code).toBe('ACCOUNT_BLOCKED');
+    expect(body(response).error.message).toBe(
+      'Sua conta está bloqueada. Entre em contato com o administrador.',
+    );
   });
 
-  it('usuário desativado com senha ERRADA recebe 401, sem revelar que a conta existe', async () => {
-    await createUser(app, { email: 'inativo2@teste.com.br', active: false });
+  it('usuário pendente com senha correta é barrado com 403 e a mensagem de aprovação', async () => {
+    await createUser(app, { email: 'pendente@teste.com.br', status: 'PENDING' });
+
+    const response = await login('pendente@teste.com.br', DEFAULT_PASSWORD);
+
+    expect(response.statusCode).toBe(403);
+    expect(body(response).error.code).toBe('ACCOUNT_PENDING');
+    expect(body(response).error.message).toBe(
+      'Seu acesso está aguardando aprovação do administrador.',
+    );
+  });
+
+  it('usuário bloqueado com senha ERRADA recebe 401, sem revelar que a conta existe', async () => {
+    await createUser(app, { email: 'inativo2@teste.com.br', status: 'BLOCKED' });
 
     const response = await login('inativo2@teste.com.br', 'senha-errada');
 
@@ -175,13 +192,15 @@ describe('GET /api/auth/me', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('usuário desativado perde o acesso NA HORA, mesmo com token válido', async () => {
+  it('usuário bloqueado perde o acesso NA HORA, mesmo com token válido', async () => {
     const user = await createUser(app);
-    await prisma.user.update({ where: { id: user.id }, data: { active: false } });
+    await prisma.user.update({ where: { id: user.id }, data: { status: 'BLOCKED' } });
 
     const response = await request(app, 'GET', '/api/auth/me', user.token);
 
-    expect(response.statusCode).toBe(403);
+    // 401, e não 403: a sessão precisa terminar na interface.
+    expect(response.statusCode).toBe(401);
+    expect(body(response).error.message).toMatch(/bloqueada/);
   });
 
   it('usuário removido do banco não autentica mais', async () => {
@@ -211,10 +230,11 @@ describe('usuários', () => {
 
     const stored = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
 
-    expect(stored.password).not.toBe('MinhaSenha#2026');
-    expect(stored.password).toMatch(/^\$2[aby]\$10\$/);
-    expect(await verifyPassword('MinhaSenha#2026', stored.password)).toBe(true);
-    expect(await verifyPassword('outra', stored.password)).toBe(false);
+    const hash = stored.password ?? '';
+    expect(hash).not.toBe('MinhaSenha#2026');
+    expect(hash).toMatch(/^\$2[aby]\$10\$/);
+    expect(await verifyPassword('MinhaSenha#2026', hash)).toBe(true);
+    expect(await verifyPassword('outra', hash)).toBe(false);
   });
 
   it('o e-mail é único', async () => {

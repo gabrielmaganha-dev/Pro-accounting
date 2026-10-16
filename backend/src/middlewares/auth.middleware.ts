@@ -1,3 +1,4 @@
+import { UserStatus } from '@prisma/client';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { prisma } from '../config/prisma.js';
@@ -32,9 +33,12 @@ export async function authMiddleware(
       name: true,
       email: true,
       role: true,
-      active: true,
+      status: true,
       mustChangePassword: true,
       passwordChangedAt: true,
+      avatarUrl: true,
+      // Só para saber SE existe senha local — o hash não sai desta função.
+      password: true,
     },
   });
 
@@ -42,8 +46,14 @@ export async function authMiddleware(
     throw AppError.unauthorized('Sessão expirada ou inválida. Faça login novamente.');
   }
 
-  if (!user.active) {
-    throw AppError.forbidden('Seu acesso foi desativado. Procure um administrador.');
+  // 401, e não 403: a sessão precisa TERMINAR. Com 403 a interface manteria o
+  // usuário logado, recebendo erro em toda tela, até ele sair por conta própria.
+  if (user.status === UserStatus.BLOCKED) {
+    throw AppError.unauthorized('Sua conta está bloqueada. Entre em contato com o administrador.');
+  }
+
+  if (user.status !== UserStatus.ACTIVE) {
+    throw AppError.unauthorized('Seu acesso está aguardando aprovação do administrador.');
   }
 
   if (isTokenOlderThanPassword(request.user.iat, user.passwordChangedAt)) {
@@ -56,6 +66,8 @@ export async function authMiddleware(
     email: user.email,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
+    avatarUrl: user.avatarUrl,
+    hasPassword: user.password !== null,
     ...requestOrigin(request),
   };
 }

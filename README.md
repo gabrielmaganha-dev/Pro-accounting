@@ -75,6 +75,7 @@ configurado) e compila o frontend.
 14. [Trocar o logotipo](#14-trocar-o-logotipo)
 15. [Próximas etapas](#15-próximas-etapas)
 16. [Produção](#16-produção) — deploy, HTTPS, backup, restauração, checklist e Vercel
+17. [Login com Google](#17-login-com-google) — Google Cloud, Supabase Auth e aprovação de cadastros
 
 ---
 
@@ -446,12 +447,16 @@ Abra <http://localhost:5173> no navegador.
 | `ADMIN_NAME`         | `Administrador`               | Usado só pelo seed                                    |
 | `ADMIN_EMAIL`        | `admin@...`                   | Usado só pelo seed                                    |
 | `ADMIN_PASSWORD`     | *(sua senha)*                 | Usado só pelo seed. Gravado com hash                  |
+| `SUPABASE_URL`       | `https://<ref>.supabase.co`   | Login com Google (opcional) — [seção 17](#17-login-com-google) |
+| `SUPABASE_ANON_KEY`  | *(chave pública)*             | Login com Google (opcional). **Nunca** a service role |
 
 ### `frontend/.env`
 
 | Variável       | Exemplo                      | Para que serve            |
 | -------------- | ---------------------------- | ------------------------- |
 | `VITE_API_URL` | `http://localhost:3333/api`  | Endereço base da API      |
+| `VITE_SUPABASE_URL` | `https://<ref>.supabase.co` | Login com Google (opcional) |
+| `VITE_SUPABASE_ANON_KEY` | *(chave pública)* | Login com Google (opcional) |
 
 > **Atenção:** no Vite, toda variável `VITE_*` é embutida no JavaScript enviado ao navegador e fica visível para qualquer usuário. Nunca coloque segredo em variável `VITE_`.
 
@@ -2194,3 +2199,131 @@ pré-visualização com endereço próprio. Em cada deploy, `scripts/vercel-buil
   instâncias no ar ao mesmo tempo, o limite efetivo fica maior que 10 por minuto.
 - **Banco pausado:** o plano gratuito do Supabase pausa o banco após dias sem uso. Restaure-o no
   painel do Supabase antes do deploy — senão as migrations falham e o build é cancelado.
+
+---
+
+## 17. Login com Google
+
+Além de e-mail e senha, o sistema aceita **"Continuar com Google"**. Os dois jeitos convivem: a
+mesma pessoa pode usar qualquer um, sempre na **mesma conta**.
+
+### 17.1 Como funciona
+
+```text
+navegador ── "Continuar com Google" ──► Supabase Auth ──► Google (escolha da conta)
+    ▲                                                          │
+    └── /auth/callback?code=… ◄──────── Supabase Auth ◄────────┘
+             │
+             │ 1. troca o código por uma sessão do Supabase (PKCE)
+             │ 2. POST /api/auth/google { token do Supabase }
+             ▼
+            API ── GET /auth/v1/user ──► Supabase Auth   (confirma a quem pertence o token)
+             │
+             ├─ encontra a conta pelo vínculo Google, ou pelo e-mail VERIFICADO pelo Google,
+             │  ou cria uma nova (FUNCIONÁRIO, AGUARDANDO APROVAÇÃO)
+             └─ conta ATIVA ► emite a MESMA sessão do login por senha
+```
+
+- **O Supabase Auth só confirma a identidade.** A sessão do sistema continua sendo uma só (o token da
+  API), com as mesmas regras de bloqueio, perfil e encerramento de sessão. A sessão do Supabase é
+  descartada assim que a API confere o token.
+- **Nada vindo do navegador é aceito pela palavra:** a API pergunta ao próprio Supabase a quem o token
+  pertence, e só aceita identidade do provedor Google com e-mail verificado.
+- **Sem contas duplicadas.** No primeiro acesso, se já existe usuário com o e-mail verificado pelo
+  Google, a Conta Google é **vinculada** a ele: mesmo cadastro, mesmo perfil, mesmo histórico. Dali em
+  diante a conta é reconhecida pelo vínculo (`users.auth_user_id`), não pelo e-mail.
+- **Ninguém vira administrador por ter um Gmail.** Conta nova entra como **Funcionário** e
+  **aguardando aprovação**; um administrador aprova em *Usuários*. Se o e-mail já estiver vinculado a
+  outra Conta Google, a API recusa e nada muda.
+- **Situação da conta:** `ACTIVE` entra; `PENDING` vê "Seu acesso está aguardando aprovação do
+  administrador."; `BLOCKED` vê "Sua conta está bloqueada. Entre em contato com o administrador." A
+  API confere a situação a cada requisição — bloquear encerra na hora a sessão de quem estava logado.
+- **Quem entra só com o Google não tem senha local:** o login por senha responde como "senha errada" e
+  a troca de senha não aparece. Um administrador pode dar uma senha à conta com *Redefinir acesso*.
+- **"Criar conta"** cadastra pelo Google. Não existe cadastro público com e-mail e senha: sem
+  confirmação por e-mail, alguém poderia cadastrar o e-mail de outra pessoa e esperar a dona entrar
+  com o Google para assumir a conta. Contas com e-mail e senha continuam sendo criadas pelo
+  administrador.
+- **O botão só aparece quando funciona:** a tela pergunta ao Supabase se o provedor Google está ligado.
+
+### 17.2 Google Cloud Console
+
+1. Em <https://console.cloud.google.com>, crie (ou escolha) um projeto, por exemplo "Pro Accounting".
+2. Abra **Google Auth Platform** (antigo "Tela de consentimento OAuth"):
+   - **Branding:** nome do app (`Pro Accounting`), e-mail de suporte e e-mail de contato.
+     Em **Authorized domains**, adicione `eqkzadyjebyrrhuysdoh.supabase.co`.
+   - **Audience:** tipo **External** e, quando terminar os testes, **Publish app** (*In production*).
+     Em *Testing*, só os e-mails listados em *Test users* conseguem entrar.
+   - **Data access:** os escopos `openid`, `.../auth/userinfo.email` e `.../auth/userinfo.profile`. São
+     escopos básicos: não exigem a verificação do Google.
+3. Em **Clients → Create client**, escolha **Web application**:
+   - **Authorized redirect URIs:** `https://eqkzadyjebyrrhuysdoh.supabase.co/auth/v1/callback`
+     (é o Supabase que recebe a resposta do Google, não o sistema).
+   - **Authorized JavaScript origins:** não são necessárias neste fluxo; se quiser preencher, use
+     `https://pro-accounting.vercel.app` e `http://localhost:5173`.
+4. Copie o **Client ID** e o **Client secret**. O secret vai **só** para o painel do Supabase — nunca
+   para o código, para a Vercel nem para variáveis `VITE_`.
+
+### 17.3 Supabase
+
+O banco de produção foi criado pela integração da Vercel. Para abrir o painel dele: Vercel →
+projeto **pro-accounting** → **Storage** → o banco → **Open in Supabase** (o endereço tem
+`eqkzadyjebyrrhuysdoh`).
+
+1. **Authentication → Sign In / Providers → Google:** ligue, cole o **Client ID** e o **Client secret**
+   e salve. A *Callback URL* mostrada ali é a mesma do passo 3 acima.
+2. **Authentication → URL Configuration:**
+   - **Site URL:** `https://pro-accounting.vercel.app`
+   - **Redirect URLs:**
+
+     ```text
+     https://pro-accounting.vercel.app/auth/callback
+     http://localhost:5173/auth/callback
+     http://localhost:8090/auth/callback
+     ```
+
+     Para deploys de pré-visualização da Vercel, acrescente também
+     `https://pro-accounting-*-gabrielmaganha-dev-projects.vercel.app/**`.
+     Quando houver domínio próprio, acrescente `https://<seu-domínio>/auth/callback` e troque o
+     *Site URL* por ele.
+3. **Authentication → Sign In / Providers → Email:** desligue *Allow new users to sign up*. O sistema
+   não usa cadastro por e-mail do Supabase — e a API recusa qualquer identidade que não seja do Google.
+
+### 17.4 Variáveis de ambiente
+
+Só valores **públicos** — o endereço do projeto Supabase e a chave *anon/publishable*, feita para o
+navegador. Nenhum segredo do Supabase (`service_role`, `JWT secret`) é usado.
+
+| Onde | Variável | Para que serve |
+| ---- | -------- | -------------- |
+| API (`backend/.env`) | `SUPABASE_URL` | Endereço do projeto (`https://eqkzadyjebyrrhuysdoh.supabase.co`) |
+| API (`backend/.env`) | `SUPABASE_ANON_KEY` | Chave pública (Supabase → Project Settings → API Keys) |
+| Interface (`frontend/.env`) | `VITE_SUPABASE_URL` | O mesmo endereço |
+| Interface (`frontend/.env`) | `VITE_SUPABASE_ANON_KEY` | A mesma chave pública |
+| Docker (`.env.production`) | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | O compose repassa à API e ao build da interface |
+
+**Na Vercel não é preciso cadastrar nada:** a integração com o Supabase já injeta o endereço e a chave
+pública (com nomes como `STORAGE_SUPABASE_URL` e `STORAGE_SUPABASE_ANON_KEY`), que a API aceita e que
+`scripts/vercel-build.mjs` repassa à interface. O log do build diz *"Login com Google: endereço e
+chave pública do Supabase encontrados"*. Se disser que não encontrou, cadastre `SUPABASE_URL` e
+`SUPABASE_ANON_KEY` em *Settings → Environment Variables* (Production) e faça um novo deploy.
+
+Sem essas variáveis, o login com Google fica desligado e o restante do sistema funciona igual.
+
+### 17.5 Testar
+
+**Localmente:** preencha as quatro variáveis acima (backend e frontend), reinicie API e interface e
+abra <http://localhost:5173/login>. O login com Google cria ou vincula a conta **no banco local**.
+
+**Em produção:** depois dos passos 17.2 e 17.3, abra <https://pro-accounting.vercel.app/login>:
+
+1. clique em **Continuar com Google** com uma conta que **não** está no sistema → "Cadastro recebido!
+   Seu acesso está aguardando aprovação do administrador.";
+2. entre como administrador → *Usuários* mostra "1 cadastro aguardando a sua aprovação" → **Aprovar
+   acesso**;
+3. **Continuar com Google** de novo → painel;
+4. F5 → continua logado; **Sair** → volta ao login;
+5. **Continuar com Google** com o e-mail do administrador → entra na **mesma** conta de administrador.
+
+Os testes automatizados cobrem o resto: `npm test` no backend (vínculo, duplicidade, situações,
+identidade recusada, Supabase fora do ar) e no frontend (botão, retorno, cancelamento, erros, sessão).

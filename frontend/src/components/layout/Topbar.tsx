@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { NAV_ITEMS } from '@/components/layout/nav-items';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { ChangePasswordDialog } from '@/components/users/ChangePasswordDialog';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -94,6 +94,11 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
               aria-label={`Menu da conta de ${user?.name ?? 'usuário'}`}
             >
               <Avatar>
+                {/* Foto do Google, quando houver. `no-referrer`: o Google
+                    recusa servir a foto para alguns sites que se identificam. */}
+                {user?.avatarUrl && (
+                  <AvatarImage src={user.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                )}
                 <AvatarFallback>{getInitials(user?.name ?? '')}</AvatarFallback>
               </Avatar>
               <span className="hidden text-left sm:block">

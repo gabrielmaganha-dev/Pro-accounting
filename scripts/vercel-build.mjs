@@ -88,6 +88,41 @@ if (process.env.ADMIN_EMAIL && adminPassword && !isPublicPassword) {
   console.info('\nADMIN_EMAIL/ADMIN_PASSWORD não definidos — seed do administrador ignorado.');
 }
 
+// Login com Google: a interface precisa do endereço do projeto Supabase e da
+// chave PÚBLICA dele (anon/publishable) — as duas feitas para ir ao navegador.
+// A integração da Vercel com o Supabase já as injeta, com os nomes dela; aqui
+// elas ganham o nome que o Vite entende. Nada secreto (service role, JWT
+// secret) é lido. Sem elas, o botão do Google simplesmente não aparece.
+const pick = (...names) => names.map((name) => process.env[name]).find((value) => value);
+
+const supabaseUrl = pick(
+  'VITE_SUPABASE_URL',
+  'STORAGE_NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'STORAGE_SUPABASE_URL',
+  'SUPABASE_URL',
+);
+const supabaseAnonKey = pick(
+  'VITE_SUPABASE_ANON_KEY',
+  'STORAGE_NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'STORAGE_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+  'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+  'STORAGE_SUPABASE_ANON_KEY',
+  'SUPABASE_ANON_KEY',
+  'STORAGE_SUPABASE_PUBLISHABLE_KEY',
+  'SUPABASE_PUBLISHABLE_KEY',
+);
+
+console.info(
+  supabaseUrl && supabaseAnonKey
+    ? '\nLogin com Google: endereço e chave pública do Supabase encontrados.'
+    : '\nLogin com Google: variáveis do Supabase não encontradas — botão desligado.',
+);
+
 run('npm run build --prefix frontend', {
   VITE_API_URL: process.env.VITE_API_URL || '/api',
+  ...(supabaseUrl && supabaseAnonKey
+    ? { VITE_SUPABASE_URL: supabaseUrl, VITE_SUPABASE_ANON_KEY: supabaseAnonKey }
+    : {}),
 });

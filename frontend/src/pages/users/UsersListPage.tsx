@@ -6,6 +6,7 @@ import {
   Search,
   ShieldCheck,
   Trash2,
+  Clock,
   UserCheck,
   UserPlus,
   UserX,
@@ -46,17 +47,19 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  GoogleAccountBadge,
   TemporaryPasswordBadge,
   UserRoleBadge,
   UserStatusBadge,
 } from '@/components/users/UserBadges';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ResetAccessDialog } from '@/components/users/ResetAccessDialog';
 import { UserFormDialog } from '@/components/users/UserFormDialog';
 import { ConfirmActionDialog } from '@/components/users/ConfirmActionDialog';
 import { useAuth } from '@/hooks/use-auth';
 import { useDeleteUser, useUpdateUserRole, useUpdateUserStatus, useUsers } from '@/hooks/use-users';
 import type { UserRole } from '@/types/auth';
-import type { User, UserListFilters } from '@/types/user';
+import type { User, UserListFilters, UserStatus } from '@/types/user';
 import { formatDate } from '@/utils/format';
 
 /** Valor usado pelo Select para representar "sem filtro". */
@@ -101,6 +104,10 @@ export function UsersListPage() {
 
   const roleMutation = useUpdateUserRole();
   const statusMutation = useUpdateUserStatus();
+
+  // Só a contagem: a lista em si é a da tabela, com o filtro "Aguardando aprovação".
+  const pendingQuery = useUsers({ status: 'PENDING', pageSize: 1 });
+  const pendingCount = pendingQuery.data?.total ?? 0;
   const deleteMutation = useDeleteUser();
 
   useEffect(() => {
@@ -137,7 +144,7 @@ export function UsersListPage() {
       order,
       ...(search ? { search } : {}),
       ...(role ? { role: role as UserRole } : {}),
-      ...(status ? { status: status as 'active' | 'inactive' } : {}),
+      ...(status ? { status: status as UserStatus } : {}),
     }),
     [page, search, role, status, sort, order],
   );
@@ -168,7 +175,7 @@ export function UsersListPage() {
     const { kind, user } = pendingAction;
     const close = { onSuccess: () => setPendingAction(null) };
 
-    if (kind === 'deactivate') statusMutation.mutate({ id: user.id, active: false }, close);
+    if (kind === 'deactivate') statusMutation.mutate({ id: user.id, status: 'BLOCKED' }, close);
     if (kind === 'demote') roleMutation.mutate({ id: user.id, role: 'EMPLOYEE' }, close);
     if (kind === 'delete') deleteMutation.mutate(user.id, close);
   }
@@ -194,6 +201,28 @@ export function UsersListPage() {
           Novo usuário
         </Button>
       </div>
+
+      {/* Cadastros pelo Google chegam como PENDENTES e não entram até alguém
+          aprovar: sem este aviso, o administrador só os encontraria por acaso. */}
+      {pendingCount > 0 && status !== 'PENDING' && (
+        <Alert>
+          <Clock />
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              {pendingCount === 1
+                ? '1 cadastro aguardando a sua aprovação.'
+                : `${pendingCount} cadastros aguardando a sua aprovação.`}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateParams({ status: 'PENDING', page: '1' })}
+            >
+              Ver cadastros
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* ---------------- Filtros ---------------- */}
       <Card>
@@ -242,8 +271,9 @@ export function UsersListPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>Todas situações</SelectItem>
-                <SelectItem value="active">Ativos</SelectItem>
-                <SelectItem value="inactive">Inativos</SelectItem>
+                <SelectItem value="ACTIVE">Ativos</SelectItem>
+                <SelectItem value="PENDING">Aguardando aprovação</SelectItem>
+                <SelectItem value="BLOCKED">Bloqueados</SelectItem>
               </SelectContent>
             </Select>
 
@@ -361,7 +391,7 @@ export function UsersListPage() {
                     onReset={() => setResetUser(user)}
                     onPromote={() => roleMutation.mutate({ id: user.id, role: 'ADMIN' })}
                     onDemote={() => setPendingAction({ kind: 'demote', user })}
-                    onActivate={() => statusMutation.mutate({ id: user.id, active: true })}
+                    onActivate={() => statusMutation.mutate({ id: user.id, status: 'ACTIVE' })}
                     onDeactivate={() => setPendingAction({ kind: 'deactivate', user })}
                     onDelete={() => setPendingAction({ kind: 'delete', user })}
                   />
@@ -448,6 +478,7 @@ function UserRow({
             </span>
           )}
           {user.mustChangePassword && <TemporaryPasswordBadge />}
+          {user.googleLinked && <GoogleAccountBadge />}
         </div>
         {/* Abaixo de 1280px o e-mail não tem coluna própria: vira subtítulo em
             vez de sumir, porque é ele que identifica a conta no login. */}
@@ -455,7 +486,7 @@ function UserRow({
         {/* No celular perfil e situação também descem para cá. */}
         <div className="mt-1.5 flex flex-wrap gap-1.5 sm:hidden">
           <UserRoleBadge role={user.role} />
-          <UserStatusBadge active={user.active} />
+          <UserStatusBadge status={user.status} />
         </div>
       </TableCell>
 
@@ -466,7 +497,7 @@ function UserRow({
       </TableCell>
 
       <TableCell className="hidden sm:table-cell">
-        <UserStatusBadge active={user.active} />
+        <UserStatusBadge status={user.status} />
       </TableCell>
 
       <TableCell className="hidden whitespace-nowrap md:table-cell">
@@ -511,15 +542,22 @@ function UserRow({
                   </DropdownMenuItem>
                 )}
 
-                {user.active ? (
-                  <DropdownMenuItem destructive onSelect={onDeactivate}>
-                    <UserX />
-                    Inativar
-                  </DropdownMenuItem>
-                ) : (
+                {user.status === 'PENDING' && (
                   <DropdownMenuItem onSelect={onActivate}>
                     <UserCheck />
-                    Reativar
+                    Aprovar acesso
+                  </DropdownMenuItem>
+                )}
+
+                {user.status === 'BLOCKED' ? (
+                  <DropdownMenuItem onSelect={onActivate}>
+                    <UserCheck />
+                    Desbloquear
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem destructive onSelect={onDeactivate}>
+                    <UserX />
+                    {user.status === 'PENDING' ? 'Recusar (bloquear)' : 'Bloquear'}
                   </DropdownMenuItem>
                 )}
 

@@ -15,6 +15,8 @@ export const ADMIN: AuthUser = {
   email: 'ana@escritorio.com.br',
   role: 'ADMIN',
   mustChangePassword: false,
+  avatarUrl: null,
+  hasPassword: true,
 };
 
 export const EMPLOYEE: AuthUser = {
@@ -23,6 +25,8 @@ export const EMPLOYEE: AuthUser = {
   email: 'fabio@escritorio.com.br',
   role: 'EMPLOYEE',
   mustChangePassword: false,
+  avatarUrl: null,
+  hasPassword: true,
 };
 
 function createTestQueryClient(): QueryClient {
@@ -82,6 +86,8 @@ export function renderWithProviders(
     user: authUser,
     isLoading: false,
     isAuthenticated: authUser !== null,
+    sessionError: null,
+    retrySession: () => undefined,
     signIn: async () => undefined,
     signOut: () => undefined,
     renewSession: () => undefined,
