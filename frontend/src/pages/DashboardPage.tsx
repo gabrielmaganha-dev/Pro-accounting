@@ -68,16 +68,6 @@ export function DashboardPage() {
       })
     : null;
 
-  // Um escritório recém-instalado não tem nada cadastrado. Nesse caso o painel
-  // inteiro seria zeros e gráficos vazios, o que parece defeito — então a tela
-  // explica o que fazer em vez de exibir um vazio mudo.
-  const isBrandNew =
-    data !== undefined &&
-    cards !== undefined &&
-    cards.clients.total === 0 &&
-    cards.contracts.total === 0 &&
-    cards.invoices.total === 0;
-
   if (isError) {
     return (
       <div className="space-y-6">
@@ -110,18 +100,6 @@ export function DashboardPage() {
         onRefresh={refetch}
         isFetching={isFetching}
       />
-
-      {isBrandNew && (
-        <Alert variant="info">
-          <CheckCircle2 />
-          <AlertTitle>Sistema pronto, sem dados ainda</AlertTitle>
-          <AlertDescription>
-            O painel está conectado ao banco, mas não há clientes cadastrados. Os números e
-            gráficos abaixo se preenchem sozinhos conforme clientes, contratos e faturas forem
-            lançados.
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* ---------------------------------------------------------------
           Financeiro primeiro: é a pergunta que traz o usuário ao painel.
