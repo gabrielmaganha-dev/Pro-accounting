@@ -2286,8 +2286,10 @@ projeto **pro-accounting** → **Storage** → o banco → **Open in Supabase** 
      `https://pro-accounting-*-gabrielmaganha-dev-projects.vercel.app/**`.
      Quando houver domínio próprio, acrescente `https://<seu-domínio>/auth/callback` e troque o
      *Site URL* por ele.
-3. **Authentication → Sign In / Providers → Email:** desligue *Allow new users to sign up*. O sistema
-   não usa cadastro por e-mail do Supabase — e a API recusa qualquer identidade que não seja do Google.
+3. **Authentication → Sign In / Providers → Email:** desligue *Enable Email provider*. O sistema não
+   usa o login por e-mail do Supabase — e a API recusa qualquer identidade que não seja do Google.
+   **Não** desligue *Allow new users to sign up* (em *User Signups*): esse vale para todos os provedores
+   e impediria o primeiro acesso de quem entra com o Google.
 
 ### 17.4 Variáveis de ambiente
 
