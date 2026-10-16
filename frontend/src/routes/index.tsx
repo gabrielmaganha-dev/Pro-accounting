@@ -17,6 +17,7 @@ import { InvoiceDetailPage } from '@/pages/invoices/InvoiceDetailPage';
 import { InvoiceFormPage } from '@/pages/invoices/InvoiceFormPage';
 import { InvoicesListPage } from '@/pages/invoices/InvoicesListPage';
 import { PaymentsListPage } from '@/pages/payments/PaymentsListPage';
+import { PrivacyPolicyPage } from '@/pages/PrivacyPolicyPage';
 import { SignUpPage } from '@/pages/SignUpPage';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
 import { PublicOnlyRoute } from '@/routes/PublicOnlyRoute';
@@ -75,6 +76,10 @@ export function AppRoutes() {
       {/* Retorno do login com Google. Fora dos dois guards: ela mesma decide
           para onde ir — painel ou login com o motivo. */}
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
+
+      {/* Política de privacidade: pública, com ou sem login — o Google exige
+          o endereço para publicar o login com Google. */}
+      <Route path="/privacidade" element={<PrivacyPolicyPage />} />
 
       {/* --- Autenticadas --------------------------------------------- */}
       <Route element={<ProtectedRoute />}>

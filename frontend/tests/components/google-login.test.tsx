@@ -303,3 +303,39 @@ describe('aprovação de cadastros', () => {
     expect(await screen.findByText('Acesso de "João do Google" liberado.')).toBeVisible();
   });
 });
+
+describe('política de privacidade', () => {
+  it('é pública: abre sem login, com o responsável e o contato', async () => {
+    const { requests } = mockApi({});
+    renderApp('/privacidade');
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Política de Privacidade' })).toBeVisible();
+    expect(screen.getAllByText(/Gabriel Maganha/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'maganha.gabriel2006@gmail.com' })[0]).toHaveAttribute(
+      'href',
+      'mailto:maganha.gabriel2006@gmail.com',
+    );
+    expect(screen.getByText(/nunca/i, { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/privacidade');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('continua acessível para quem está logado', async () => {
+    mockApi({ 'GET /auth/me': ok({ user: ADMIN }) });
+    renderApp('/privacidade', { token: 'jwt' });
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Política de Privacidade' })).toBeVisible();
+    expect(screen.getByTestId('location')).toHaveTextContent('/privacidade');
+  });
+
+  it('a tela de login leva à política', async () => {
+    supabase.available = false;
+    mockApi({});
+    renderApp('/login');
+
+    expect(await screen.findByRole('link', { name: 'Política de privacidade' })).toHaveAttribute(
+      'href',
+      '/privacidade',
+    );
+  });
+});

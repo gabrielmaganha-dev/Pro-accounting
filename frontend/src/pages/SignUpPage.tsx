@@ -67,6 +67,14 @@ export function SignUpPage() {
           Entrar
         </Link>
       </p>
+
+      <p className="mt-4 text-center text-xs text-muted-foreground">
+        Ao continuar, você concorda com o tratamento dos seus dados descrito na{' '}
+        <Link to="/privacidade" className="underline hover:text-foreground">
+          Política de privacidade
+        </Link>
+        .
+      </p>
     </div>
   );
 }

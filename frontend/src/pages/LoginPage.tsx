@@ -254,6 +254,12 @@ export function LoginPage() {
         {/* A recuperação por e-mail entra na etapa de autenticação completa. */}
         <span>Recuperação por e-mail em breve.</span>
       </p>
+
+      <p className="mt-4 text-center text-xs">
+        <Link to="/privacidade" className="text-muted-foreground underline hover:text-foreground">
+          Política de privacidade
+        </Link>
+      </p>
     </div>
   );
 }
