@@ -1,58 +1,52 @@
-# Como trocar o logotipo da Pro Accounting
+# Logotipo padrão da Pro Accounting
 
-O logo atual é **provisório**. Ele está isolado em dois arquivos e é consumido em um único
-componente (`src/components/brand/Logo.tsx`). Nenhuma tela importa os arquivos diretamente.
+Os três PNG desta pasta são o logotipo **padrão de fábrica**. Um logotipo enviado em
+Configurações → Identidade visual tem precedência sobre eles em todas as telas.
+`src/components/brand/Logo.tsx` é o único arquivo que os importa; nenhuma tela os usa
+diretamente.
 
-## Os dois arquivos
+## Trocar o logotipo padrão
 
-| Arquivo          | Proporção  | Onde aparece                                                        |
-| ---------------- | ---------- | ------------------------------------------------------------------- |
-| `logo.svg`       | horizontal | Tela de login, topo do menu lateral expandido, cabeçalho de relatórios |
-| `logo-mark.svg`  | quadrado   | Menu lateral recolhido, favicon, avatar padrão, telas estreitas       |
+1. Substitua os três arquivos mantendo exatamente os mesmos nomes:
 
-## Troca (caso 1) — você tem o logo em SVG
+   | Arquivo          | O que deve conter                                   | Fundo onde aparece                              |
+   | ---------------- | --------------------------------------------------- | ----------------------------------------------- |
+   | `logo.png`       | logotipo completo na cor da marca, fundo transparente | claro                                         |
+   | `logo-white.png` | o mesmo logotipo todo em branco, fundo transparente | azul-escuro (`brand-900`): menu lateral e painel do login |
+   | `logo-mark.png`  | só o símbolo, quadrado                              | aba do navegador (favicon)                      |
 
-O mais simples e o de melhor qualidade. Substitua os dois arquivos **mantendo exatamente os mesmos nomes**:
+   A altura de `logo.png` e `logo-white.png` deve ser pelo menos 3× o maior `size` usado
+   com aquela variante (procure `<Logo variant=` em `src/`), para não serrilhar em telas de
+   alta densidade. O `logo-mark.png` não tem `size` no código: use ao menos 64×64 px, o
+   que o navegador pede para o favicon nessas telas. Pronto quando os três arquivos existem
+   com esses nomes e tamanhos.
 
-```
-apps/web/src/assets/logo.svg        <- sua versão horizontal (marca + nome)
-apps/web/src/assets/logo-mark.svg   <- só o símbolo, recortado em um quadrado
-```
+2. Só se mudar o formato (SVG, JPG, WEBP): troque as três linhas de `import` no topo de
+   `Logo.tsx` e os atributos `type` e `href` do `<link rel="icon">` em `frontend/index.html`.
+   Pronto quando, a partir de `frontend/`,
+   `grep -rn "assets/logo" index.html src --include=*.tsx --include=*.html` só mostra os
+   nomes novos. Em SVG, deixe o `viewBox` justo ao desenho (margem vira espaço morto no
+   menu) e converta textos em `<path>` (uma fonte própria não existe na máquina de quem abre
+   o sistema).
 
-Nada mais precisa ser alterado. Recomendações para o SVG:
+3. Confira: `npm run build --prefix frontend` falha se um import aponta para arquivo
+   inexistente. Depois abra `/login` (logo completo no formulário, versão branca no painel
+   azul) e veja a aba do navegador. Pronto quando o build passa e as duas telas mostram o
+   logo novo; se mostrarem outro, veja o primeiro item abaixo.
 
-- Deixe o `viewBox` justo ao desenho, sem margem sobrando (a margem vira espaço morto no menu).
-- Não fixe `width`/`height` em pixels — ou, se fixar, mantenha a proporção; o componente redimensiona.
-- Converta os textos em curvas/`<path>` se o logo usar uma fonte própria, senão ela não será
-  renderizada na máquina de quem abrir o sistema.
+## Quando algo não bate
 
-## Troca (caso 2) — você só tem PNG/JPG
-
-Coloque os arquivos na mesma pasta e ajuste **apenas as duas linhas de import** no topo de
-`src/components/brand/Logo.tsx`:
-
-```diff
-- import logoFull from '@/assets/logo.svg'
-- import logoMark from '@/assets/logo-mark.svg'
-+ import logoFull from '@/assets/logo.png'
-+ import logoMark from '@/assets/logo-mark.png'
-```
-
-Use PNG com fundo transparente e pelo menos 3x o tamanho de exibição (ex.: 720px de largura na
-versão horizontal) para não serrilhar em telas de alta densidade.
-
-## Favicon
-
-O favicon é gerado a partir do `logo-mark.svg` e está referenciado em `apps/web/index.html`.
-Se você trocar por PNG, atualize também a linha:
-
-```html
-<link rel="icon" type="image/svg+xml" href="/src/assets/logo-mark.svg" />
-```
-
-## Cores da interface
-
-As cores do sistema **não** vêm do arquivo do logo — elas ficam centralizadas em
-`apps/web/tailwind.config.js` (paleta `brand` = azul corporativo, `accent` = âmbar).
-Quando você enviar o logo oficial, me avise: eu ajusto essa paleta para os tons exatos dele,
-verificando o contraste (WCAG AA) de cada combinação de texto/fundo.
+- **A tela continua com outro logo depois da troca:** há um logotipo enviado em
+  Configurações → Identidade visual, gravado no banco. Ele substitui os três arquivos;
+  remova o envio ali para ver o padrão.
+- **Um logo enviado aparece igual nas três variantes**, inclusive sobre o menu azul-escuro,
+  porque o envio é de um arquivo só (o motivo está no comentário de `Logo.tsx`). Para o
+  menu ficar legível, o logo enviado precisa funcionar sobre fundo escuro.
+- **O favicon não acompanha o envio:** `index.html` aponta sempre para `logo-mark.png`.
+- **As cores da interface não vêm do arquivo do logo.** A cor primária é escolhida em
+  Configurações → Identidade visual, e `src/lib/theme.ts` deriva dela a rampa `brand-*`;
+  é ali que se casa a cor com o logo, e a tela avisa quando o contraste com texto branco
+  fica abaixo de 4,5:1. A cor de fábrica mora em dois lugares que precisam mudar juntos: o
+  `@default` de `primaryColor` em `backend/prisma/schema.prisma` (instalações novas; exige
+  migration) e as variáveis `--brand-*` e `--primary` em `src/index.css` (usadas antes de a
+  configuração carregar).

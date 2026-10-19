@@ -1725,10 +1725,9 @@ alguns segundos e passa sozinho. Se persistir, veja `npm run prod:ps` e
 
 ## 14. Trocar o logotipo
 
-O logo atual é provisório. O procedimento completo está em
-[`frontend/src/assets/LOGO.md`](frontend/src/assets/LOGO.md).
-
-Resumo: substitua `frontend/src/assets/logo.svg` e `logo-mark.svg` mantendo os nomes. Nenhuma linha de código muda.
+Para trocar só o logo exibido, envie o arquivo em Configurações → Identidade visual; nenhum
+código muda. Para trocar o logo padrão de fábrica (os três PNG em `frontend/src/assets/`),
+siga [`frontend/src/assets/LOGO.md`](frontend/src/assets/LOGO.md).
 
 ---
 

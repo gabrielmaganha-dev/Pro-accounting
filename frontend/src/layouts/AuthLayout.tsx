@@ -27,7 +27,7 @@ export function AuthLayout() {
           className="pointer-events-none absolute -bottom-32 -left-20 size-96 rounded-full bg-brand-500/20 blur-3xl"
         />
 
-        <Logo variant="lockup" size={40} className="relative text-white" />
+        <Logo variant="inverse" size={60} className="relative" />
 
         <div className="relative max-w-md">
           <h2 className="text-3xl font-bold leading-tight tracking-tight">

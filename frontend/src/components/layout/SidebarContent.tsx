@@ -29,7 +29,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
   return (
     <div className="flex h-full flex-col bg-brand-900 text-white">
       <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-white/10 px-5">
-        <Logo variant="lockup" size={32} className="text-white" />
+        <Logo variant="inverse" size={40} />
 
         {/* Só na gaveta do celular (é quando `onNavigate` existe). Tocar fora
             já fecha o menu, mas isso não é óbvio — e quem usa leitor de tela
