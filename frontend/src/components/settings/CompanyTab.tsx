@@ -49,6 +49,7 @@ export function CompanyTab({ settings, canEdit }: CompanyTabProps) {
     companyNeighborhood: '',
     companyCity: '',
     companyState: '',
+    invoicePaymentInstructions: '',
   });
 
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export function CompanyTab({ settings, canEdit }: CompanyTabProps) {
       companyNeighborhood: settings.companyNeighborhood ?? '',
       companyCity: settings.companyCity ?? '',
       companyState: settings.companyState ?? '',
+      invoicePaymentInstructions: settings.invoicePaymentInstructions ?? '',
     });
     setError(null);
   }, [settings]);
@@ -102,6 +104,7 @@ export function CompanyTab({ settings, canEdit }: CompanyTabProps) {
       companyNeighborhood: form.companyNeighborhood.trim(),
       companyCity: form.companyCity.trim(),
       companyState: form.companyState,
+      invoicePaymentInstructions: form.invoicePaymentInstructions.trim(),
     };
 
     mutation.mutate(payload);
@@ -272,6 +275,31 @@ export function CompanyTab({ settings, canEdit }: CompanyTabProps) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-border pt-5">
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">Fatura em PDF</h4>
+            <p className="text-sm text-muted-foreground">
+              O cabeçalho da fatura usa o nome, o endereço (rua, número e complemento) e o CNPJ
+              acima.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="company-payment">Forma de pagamento</Label>
+            <Input
+              id="company-payment"
+              value={form.invoicePaymentInstructions}
+              onChange={(event) => set('invoicePaymentInstructions', event.target.value)}
+              placeholder="Ex.: PIX CNPJ 11222333000181"
+              disabled={disabled}
+              maxLength={80}
+            />
+            <p className="text-xs text-muted-foreground">
+              Sai no campo &quot;Forma de Pagamento&quot; de todas as faturas.
+            </p>
           </div>
         </div>
 

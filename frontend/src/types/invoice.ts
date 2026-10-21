@@ -24,10 +24,17 @@ export interface InvoiceContract {
   status: ContractStatus;
 }
 
+/** Cliente resumido da fatura, com o e-mail usado no envio da fatura. */
+export interface InvoiceClient extends ClientSummary {
+  email: string | null;
+}
+
 export interface Invoice {
   id: string;
   number: string;
   description: string | null;
+  /** Impressa no campo "Observação" da fatura em PDF. */
+  notes: string | null;
   /** String, não number: o Decimal do banco perderia centavos em `number`. */
   amount: string;
   paidAmount: string;
@@ -46,7 +53,7 @@ export interface Invoice {
   createdAt: string;
   updatedAt: string;
   clientId: string;
-  client: ClientSummary;
+  client: InvoiceClient;
   /** Nulo em fatura avulsa, emitida sem contrato. */
   contractId: string | null;
   contract: InvoiceContract | null;
@@ -105,6 +112,7 @@ export interface InvoicePayload {
   contractId?: string | null;
   number: string;
   description?: string | null;
+  notes?: string | null;
   amount: string;
   issueDate: string;
   dueDate: string;

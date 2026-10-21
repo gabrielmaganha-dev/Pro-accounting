@@ -5,6 +5,7 @@ import {
   deleteInvoiceController,
   getInvoiceController,
   getInvoiceHistoryController,
+  invoicePdfController,
   listInvoicePaymentsController,
   listInvoicesController,
   nextInvoiceNumberController,
@@ -20,6 +21,7 @@ import {
  * MATRIZ DE PERMISSÃO — ADMIN faz tudo; o funcionário:
  *
  *   listar / ver / histórico / pagamentos ..... SIM
+ *   gerar o PDF da fatura ..................... SIM
  *   emitir .................................... SIM
  *   editar .................................... SIM
  *   registrar pagamento ....................... SIM
@@ -48,6 +50,9 @@ export async function invoiceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/invoices/:id', { preHandler: [app.authenticate] }, getInvoiceController);
 
   app.get('/invoices/:id/history', { preHandler: [app.authenticate] }, getInvoiceHistoryController);
+
+  /** Fatura em PDF. Quem pode ver a fatura pode emitir o documento dela. */
+  app.get('/invoices/:id/pdf', { preHandler: [app.authenticate] }, invoicePdfController);
 
   app.get(
     '/invoices/:id/payments',

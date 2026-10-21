@@ -84,7 +84,7 @@ configurado) e compila o frontend.
 | Camada         | Tecnologia                                                                  |
 | -------------- | --------------------------------------------------------------------------- |
 | Frontend       | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, React Router, TanStack Query, React Hook Form, Zod, Lucide |
-| Backend        | Node.js 20+, TypeScript, Fastify 5, Zod                                     |
+| Backend        | Node.js 20+, TypeScript, Fastify 5, Zod, pdf-lib (fatura em PDF)            |
 | Banco de dados | PostgreSQL 16+ (verificado com 18.6) + Prisma ORM                           |
 | Autenticação   | JWT (`@fastify/jwt`) + hash de senha com bcrypt                             |
 | Infra local    | Docker Compose (apenas o PostgreSQL)                                        |
@@ -629,6 +629,13 @@ Rode `npm run db:seed:demo` antes, senão as telas abrem vazias.
 11. **Coerência entre telas** — abra a ficha do cliente e a do contrato: os cards de
     recebido, pendente e atrasado refletem o que você acabou de lançar. As três telas usam
     a mesma derivação, então não podem discordar.
+12. **Fatura em PDF** — em *Configurações → Empresa*, preencha nome, endereço, CNPJ e
+    *Forma de pagamento*. Na listagem, o ícone de documento na coluna *Ações* (ou o botão
+    *PDF* na ficha, em telas menores) abre o menu: *Visualizar* abre o PDF numa aba nova,
+    *Baixar PDF* salva `Fatura_<número>.pdf`, *Imprimir* abre o diálogo de impressão e
+    *Enviar por e-mail* prepara a mensagem para o seu programa de e-mail — o sistema não
+    envia sozinho. Gere o PDF de uma fatura paga e de uma cancelada: as duas saem com marca
+    d'água.
 
 ### 8.6 Testando o módulo de pagamentos
 
@@ -941,6 +948,7 @@ obtido mandando `status` no corpo do `PUT`.
 | `GET`    | `/invoices/next-number`               | Autenticado  | Sugere o próximo número livre    |
 | `GET`    | `/invoices/:id`                       | Autenticado  | Ficha da fatura                  |
 | `GET`    | `/invoices/:id/history`               | Autenticado  | Auditoria, paginada              |
+| `GET`    | `/invoices/:id/pdf`                   | Autenticado  | Fatura em PDF (ver abaixo)       |
 | `GET`    | `/invoices/:id/payments`              | Autenticado  | Pagamentos da fatura             |
 | `POST`   | `/invoices`                           | Autenticado  | Emite uma fatura                 |
 | `PUT`    | `/invoices/:id`                       | Autenticado  | Atualiza a fatura                |
@@ -988,6 +996,30 @@ conhece, e a regra vive em `backend/src/utils/invoice-status.ts`:
 > Emissão e vencimento são períodos **separados** porque "o que emitimos em março" e "o
 > que vence em março" são perguntas diferentes. O filtro `PENDING` exclui as vencidas —
 > se não excluísse, a mesma fatura apareceria em dois filtros.
+
+#### Fatura em PDF
+
+`GET /invoices/:id/pdf?disposition=attachment` (baixar, o padrão) ou `inline` (abrir no
+navegador) devolve `Fatura_<número>.pdf`, montado na hora no layout da fatura-modelo do
+escritório: cabeçalho com logo, destinatário, serviço e total, observação, faixa de
+vencimento, forma de pagamento e total, e o canhoto de recebimento.
+
+- **Não altera a fatura.** Gerar o documento não muda a situação nem grava nada nela. Cada
+  geração entra na auditoria como `EXPORT` da fatura, com quem emitiu e quando.
+- **Os dados vêm de três lugares:** da fatura (número, emissão, vencimento, descrição,
+  valor, observação), do cadastro do cliente (nome, CPF/CNPJ, endereço) e de
+  *Configurações → Empresa* (nome, rua, número, complemento, CNPJ e *Forma de pagamento*).
+  O logo é o enviado em *Identidade visual*, se for PNG ou JPEG; sem envio, o padrão de
+  fábrica.
+- **Paga, vencida e cancelada aparecem no documento:** a observação ganha uma linha
+  automática, e paga e cancelada levam marca d'água — um PDF antigo não pode ser cobrado
+  de novo.
+- **Nenhuma cópia é guardada.** O PDF sai sempre dos valores atuais, e uma edição
+  posterior fica no histórico da fatura. Por isso não há armazenamento de arquivos nem
+  variável de ambiente nova.
+- Gerado com `pdf-lib`, JavaScript puro que não lê arquivo do disco em tempo de execução —
+  funciona igual na função da Vercel e no container. O desenho, com as medidas do modelo,
+  está em `backend/src/documents/invoice-pdf.ts`.
 
 ### Pagamentos
 
@@ -1294,6 +1326,10 @@ o arquivo inteiro em memória e seguraria a conexão do banco enquanto isso.
 > **Quando trocar:** se os relatórios passarem a exigir várias abas com referências entre
 > si, gráficos embutidos ou formatação condicional. Aí a conta se inverte — e a troca
 > mexe só em `formatters/`, porque nada fora dali sabe o que é um ZIP ou um `xref`.
+>
+> A **fatura em PDF** não usa este gerador: ela precisa do logo, que é imagem. Por isso
+> usa `pdf-lib` (ver "Fatura em PDF", nas rotas de faturas), e os relatórios continuam
+> sem dependência.
 
 ### Configurações
 

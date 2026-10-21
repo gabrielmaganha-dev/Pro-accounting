@@ -58,6 +58,8 @@ const invoiceFormSchema = z
 
     description: z.string().trim().max(255, 'Máximo de 255 caracteres.'),
 
+    notes: z.string().trim().max(500, 'Máximo de 500 caracteres.'),
+
     amount: z
       .string()
       .min(1, 'Informe o valor.')
@@ -116,6 +118,7 @@ export function InvoiceForm({
           contractId: initialContractId ?? '',
           number: '',
           description: '',
+          notes: '',
           amount: '',
           issueDate: todayIso(),
           dueDate: '',
@@ -405,6 +408,31 @@ export function InvoiceForm({
                 )}
               />
             </div>
+
+            <div className="md:col-span-2">
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Observação</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        maxLength={500}
+                        placeholder="Ex.: Após o vencimento, multa de 2% e juros de 1% ao mês."
+                        disabled={isSubmitting}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Sai no campo &quot;Observação&quot; da fatura em PDF. Opcional.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -450,6 +478,7 @@ function toFormValues(invoice: Invoice): InvoiceFormValues {
     contractId: invoice.contractId ?? '',
     number: invoice.number,
     description: invoice.description ?? '',
+    notes: invoice.notes ?? '',
     amount: toCurrencyInput(invoice.amount),
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
@@ -468,6 +497,8 @@ function toPayload(values: InvoiceFormValues): InvoicePayload {
     // Sempre enviado, inclusive vazio: é assim que apagar a descrição numa
     // edição de fato a apaga, em vez de manter silenciosamente o texto antigo.
     description: values.description.trim(),
+    // Mesmo motivo da descrição: vazio apaga a observação na edição.
+    notes: values.notes.trim(),
     amount: parseCurrency(values.amount),
     issueDate: values.issueDate,
     dueDate: values.dueDate,

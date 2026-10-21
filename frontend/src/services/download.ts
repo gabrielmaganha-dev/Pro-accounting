@@ -16,6 +16,20 @@ import { tokenStorage } from '@/utils/storage';
  * `revokeObjectURL` — o vazamento que só aparece depois da vigésima exportação.
  */
 export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const file = await fetchFile(path, fallbackName);
+  saveBlob(file.blob, file.filename);
+}
+
+export interface FetchedFile {
+  blob: Blob;
+  filename: string;
+}
+
+/**
+ * Busca um arquivo autenticado sem salvá-lo — para quem precisa exibir ou
+ * imprimir o conteúdo, como a fatura em PDF.
+ */
+export async function fetchFile(path: string, fallbackName: string): Promise<FetchedFile> {
   const token = tokenStorage.get();
 
   const response = await fetch(`${env.apiUrl}${path}`, {
@@ -49,8 +63,12 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
    */
   const disposition = response.headers.get('Content-Disposition') ?? '';
   const match = /filename="?([^"]+)"?/.exec(disposition);
-  const filename = match?.[1] ?? fallbackName;
 
+  return { blob, filename: match?.[1] ?? fallbackName };
+}
+
+/** Salva um arquivo já em memória com o nome dado. */
+export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

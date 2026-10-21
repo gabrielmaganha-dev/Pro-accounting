@@ -14,6 +14,7 @@ import {
   updateInvoice,
 } from '../services/invoice.service.js';
 import { recordAudit } from '../services/audit.service.js';
+import { buildInvoicePdf } from '../services/invoice-pdf.service.js';
 import { ok } from '../utils/api-response.js';
 import { AppError } from '../utils/app-error.js';
 import { validate } from '../utils/validate.js';
@@ -21,6 +22,7 @@ import {
   createInvoiceSchema,
   invoiceHistoryQuerySchema,
   invoiceIdParamSchema,
+  invoicePdfQuerySchema,
   listInvoicesQuerySchema,
   paymentIdParamSchema,
   registerPaymentSchema,
@@ -56,6 +58,43 @@ export async function getInvoiceController(request: FastifyRequest, reply: Fasti
   const invoice = await getInvoiceById(id);
 
   return reply.status(200).send(ok(invoice));
+}
+
+/**
+ * GET /api/invoices/:id/pdf
+ *
+ * Como as exportações de relatório, devolve o ARQUIVO cru, não o envelope
+ * `{ success, data }`. Registrado na auditoria pelo mesmo motivo delas: o
+ * documento sai do sistema com os dados do cliente, e é o único rastro de quem
+ * emitiu a fatura e quando.
+ */
+export async function invoicePdfController(request: FastifyRequest, reply: FastifyReply) {
+  const actor = requireUser(request);
+  const { id } = validate(invoiceIdParamSchema, request.params);
+  const { disposition, purpose } = validate(invoicePdfQuerySchema, request.query);
+
+  const file = await buildInvoicePdf(id);
+
+  await recordAudit(actor, {
+    action: 'EXPORT',
+    entity: 'INVOICE',
+    entityId: id,
+    entityLabel: file.number,
+    metadata: {
+      formato: 'pdf',
+      modo: purpose === 'print' ? 'imprimir' : disposition === 'inline' ? 'abrir' : 'baixar',
+    },
+  });
+
+  return reply
+    .status(200)
+    .header('Content-Type', 'application/pdf')
+    .header('Content-Disposition', `${disposition}; filename="${file.filename}"`)
+    // Fatura tem CPF/CNPJ e endereço do cliente: nenhum cache intermediário
+    // (proxy, CDN, disco do navegador) deve guardar uma cópia.
+    .header('Cache-Control', 'private, no-store')
+    .header('Access-Control-Expose-Headers', 'Content-Disposition')
+    .send(file.body);
 }
 
 /** GET /api/invoices/:id/history */

@@ -26,6 +26,23 @@ export interface MockResponse {
   body?: unknown;
   /** Atraso artificial, para observar estados de carregamento. */
   delayMs?: number;
+  /**
+   * Corpo cru, para as rotas que devolvem ARQUIVO (exportações, fatura em PDF)
+   * em vez do envelope JSON. Vai com `headers`, ex.: `Content-Disposition`.
+   */
+  raw?: BodyInit;
+  headers?: Record<string, string>;
+}
+
+/** Resposta de arquivo, como as rotas de exportação e de PDF. */
+export function file(content: string, contentType: string, filename: string): MockResponse {
+  return {
+    raw: new Blob([content], { type: contentType }),
+    headers: {
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  };
 }
 
 export type RouteHandler = MockResponse | ((request: MockRequest) => MockResponse);
@@ -72,6 +89,7 @@ const LAYOUT_ROUTES: Record<string, RouteHandler> = {
       companyNeighborhood: null,
       companyCity: null,
       companyState: null,
+      invoicePaymentInstructions: 'PIX CNPJ 11222333000181',
       logo: null,
       primaryColor: '#1d4ed8',
       secondaryColor: '#f59e0b',
@@ -117,6 +135,10 @@ export function mockApi(ownRoutes: Record<string, RouteHandler>) {
     }
 
     const status = response.status ?? 200;
+
+    if (response.raw !== undefined) {
+      return new Response(response.raw, { status, headers: response.headers ?? {} });
+    }
 
     return new Response(status === 204 ? null : JSON.stringify(response.body ?? null), {
       status,

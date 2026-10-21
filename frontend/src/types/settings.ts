@@ -15,6 +15,8 @@ export interface Settings {
   companyNeighborhood: string | null;
   companyCity: string | null;
   companyState: string | null;
+  /** Campo "Forma de Pagamento" da fatura em PDF. */
+  invoicePaymentInstructions: string | null;
 
   // --- Identidade visual ---
   /** Data URL (`data:image/png;base64,…`) ou null para usar o símbolo padrão. */
@@ -57,6 +59,8 @@ export interface CompanyPayload {
   companyNeighborhood?: string;
   companyCity?: string;
   companyState?: string;
+  /** Vazio apaga a instrução das próximas faturas. */
+  invoicePaymentInstructions?: string;
 }
 
 export interface AppearancePayload {

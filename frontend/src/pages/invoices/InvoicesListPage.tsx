@@ -9,6 +9,7 @@ import { Pagination } from '@/components/common/Pagination';
 import { SortableHead } from '@/components/common/SortableHead';
 import { SortSelect, type SortOption } from '@/components/common/SortSelect';
 import { TableSkeleton } from '@/components/common/TableSkeleton';
+import { InvoicePdfMenu } from '@/components/invoices/InvoicePdfMenu';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -395,7 +396,7 @@ export function InvoicesListPage() {
                   />
                   <TableHead className="hidden wide:table-cell">Pagamento</TableHead>
                   <TableHead className="hidden md:table-cell">Situação</TableHead>
-                  <TableHead className="hidden w-[100px] text-right xl:table-cell">Ações</TableHead>
+                  <TableHead className="hidden w-[140px] text-right xl:table-cell">Ações</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -501,6 +502,7 @@ export function InvoicesListPage() {
                             <Eye />
                           </Link>
                         </Button>
+                        <InvoicePdfMenu invoice={invoice} compact />
                         <Button variant="ghost" size="icon" asChild aria-label="Editar fatura">
                           <Link to={`/faturas/${invoice.id}/editar`}>
                             <Pencil />

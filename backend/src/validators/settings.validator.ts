@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { BRAZILIAN_STATES, isValidCpfCnpj, onlyDigits } from '../utils/document.js';
+import { LOGO_MAX_SIDE_PX, pngDimensions } from '../utils/image.js';
 
 /**
  * Schemas da configuração do sistema.
@@ -9,15 +10,27 @@ import { BRAZILIAN_STATES, isValidCpfCnpj, onlyDigits } from '../utils/document.
  * telefone e CEP passam por `onlyDigits` antes de qualquer validação, porque
  * gravar "12.345.678/0001-90" formatado quebraria busca, unicidade e qualquer
  * integração futura.
+ *
+ * Campos opcionais da empresa distinguem "não mexer" de "apagar":
+ *
+ *   ausente ............ undefined -> o valor gravado fica como está
+ *   "" ou null ......... null      -> o valor é apagado
+ *
+ * Apagar precisa funcionar porque esses dados saem impressos na fatura em PDF:
+ * um complemento ou CNPJ que o escritório deixou de usar não pode continuar
+ * aparecendo em toda fatura.
  */
 
-/** Converte string vazia em `undefined` — formulário HTML manda "", não null. */
+/** Vazio vira `null` (apaga); o formulário HTML manda "", não null. */
+const emptyToNull = (value: string): string | null => (value.length === 0 ? null : value);
+
 const optionalText = (max: number) =>
   z
     .string()
     .trim()
     .max(max, `Máximo de ${max} caracteres.`)
-    .transform((value) => (value.length === 0 ? undefined : value))
+    .transform(emptyToNull)
+    .nullable()
     .optional();
 
 const cnpjSchema = z
@@ -29,7 +42,8 @@ const cnpjSchema = z
   .refine((digits) => digits.length === 0 || isValidCpfCnpj(digits), {
     message: 'CNPJ inválido. Confira os números digitados.',
   })
-  .transform((digits) => (digits.length === 0 ? undefined : digits))
+  .transform(emptyToNull)
+  .nullable()
   .optional();
 
 const phoneSchema = z
@@ -38,14 +52,16 @@ const phoneSchema = z
   .refine((d) => d.length === 0 || d.length === 10 || d.length === 11, {
     message: 'Telefone deve ter 10 dígitos (fixo) ou 11 (celular), com DDD.',
   })
-  .transform((d) => (d.length === 0 ? undefined : d))
+  .transform(emptyToNull)
+  .nullable()
   .optional();
 
 const zipCodeSchema = z
   .string()
   .transform(onlyDigits)
   .refine((d) => d.length === 0 || d.length === 8, { message: 'CEP deve ter 8 dígitos.' })
-  .transform((d) => (d.length === 0 ? undefined : d))
+  .transform(emptyToNull)
+  .nullable()
   .optional();
 
 const emailSchema = z
@@ -55,7 +71,8 @@ const emailSchema = z
   .refine((v) => v.length === 0 || z.string().email().safeParse(v).success, {
     message: 'Informe um e-mail válido.',
   })
-  .transform((v) => (v.length === 0 ? undefined : v))
+  .transform(emptyToNull)
+  .nullable()
   .optional();
 
 const websiteSchema = z
@@ -69,7 +86,8 @@ const websiteSchema = z
     // "localhost:5173/proaccounting.com.br" ao ser clicado.
     { message: 'Informe o endereço completo, começando com http:// ou https://.' },
   )
-  .transform((v) => (v.length === 0 ? undefined : v))
+  .transform(emptyToNull)
+  .nullable()
   .optional();
 
 const stateSchema = z
@@ -79,7 +97,8 @@ const stateSchema = z
   .refine((v) => v.length === 0 || (BRAZILIAN_STATES as readonly string[]).includes(v), {
     message: 'UF inválida.',
   })
-  .transform((v) => (v.length === 0 ? undefined : v))
+  .transform(emptyToNull)
+  .nullable()
   .optional();
 
 export const updateCompanySchema = z.object({
@@ -101,6 +120,9 @@ export const updateCompanySchema = z.object({
   companyNeighborhood: optionalText(120),
   companyCity: optionalText(120),
   companyState: stateSchema,
+
+  /** Texto do campo "Forma de Pagamento" da fatura em PDF. */
+  invoicePaymentInstructions: optionalText(80),
 });
 
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;
@@ -135,12 +157,39 @@ const LOGO_MAX_BASE64_LENGTH = 400 * 1024;
  */
 const LOGO_PATTERN = /^data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/]+=*$/;
 
+const PNG_PREFIX = 'data:image/png;base64,';
+
 const logoSchema = z
   .string()
   .trim()
   .max(LOGO_MAX_BASE64_LENGTH, 'A imagem é grande demais. Use um arquivo de até 400 KB.')
   .refine((value) => LOGO_PATTERN.test(value), {
     message: 'Envie uma imagem PNG, JPEG, WEBP ou SVG.',
+  })
+  // Um PNG pequeno em KB pode ter dimensões enormes (cor chapada comprime
+  // muito). Só o cabeçalho é lido: 44 caracteres de base64 trazem 33 bytes.
+  .superRefine((value, context) => {
+    if (!value.startsWith(PNG_PREFIX)) return;
+
+    const head = Buffer.from(value.slice(PNG_PREFIX.length, PNG_PREFIX.length + 44), 'base64');
+    const size = pngDimensions(head);
+
+    if (!size) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'O arquivo não é um PNG válido. Exporte a imagem de novo e envie.',
+      });
+      return;
+    }
+
+    if (size.width > LOGO_MAX_SIDE_PX || size.height > LOGO_MAX_SIDE_PX) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          `A imagem tem ${size.width} × ${size.height} px. Use até ${LOGO_MAX_SIDE_PX} px de ` +
+          'cada lado — maior que isso deixa a fatura em PDF lenta.',
+      });
+    }
   });
 
 export const updateAppearanceSchema = z.object({

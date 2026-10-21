@@ -69,6 +69,26 @@ export function isValidCpfCnpj(value: string): boolean {
   return false;
 }
 
+/**
+ * Máscara de CPF/CNPJ.
+ *
+ * O banco guarda só dígitos, para não quebrar busca e unicidade. Quem recebe um
+ * documento emitido pelo sistema (planilha, fatura), porém, espera o número
+ * formatado: `11222333000181` não é conferível a olho. Tamanho inesperado volta
+ * como veio, em vez de virar uma máscara errada.
+ */
+export function formatCpfCnpj(digits: string): string {
+  if (digits.length === 11) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+  }
+
+  if (digits.length === 14) {
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  }
+
+  return digits;
+}
+
 /** Unidades da Federação, para validar o campo `state`. */
 export const BRAZILIAN_STATES = [
   'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',

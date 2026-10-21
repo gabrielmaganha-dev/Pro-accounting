@@ -29,6 +29,7 @@ const FIELD_LABELS: Record<string, string> = {
   contractId: 'Contrato',
   number: 'Número',
   description: 'Descrição',
+  notes: 'Observação',
   amount: 'Valor',
   issueDate: 'Data de emissão',
   dueDate: 'Vencimento',
@@ -52,6 +53,8 @@ const CLIENT_SELECT = {
   name: true,
   companyName: true,
   cpfCnpj: true,
+  /** Destinatário sugerido quando a fatura é enviada por e-mail. */
+  email: true,
   status: true,
 } as const;
 
@@ -63,7 +66,14 @@ const CONTRACT_SELECT = {
 } as const;
 
 type InvoiceRow = Invoice & {
-  client: { id: string; name: string; companyName: string | null; cpfCnpj: string; status: string };
+  client: {
+    id: string;
+    name: string;
+    companyName: string | null;
+    cpfCnpj: string;
+    email: string | null;
+    status: string;
+  };
   contract: { id: string; number: string; serviceType: string; status: string } | null;
   payments: { amount: Prisma.Decimal; paymentDate: Date }[];
 };
@@ -92,6 +102,7 @@ function toInvoiceDto(invoice: InvoiceRow, referenceIso: string) {
     id: invoice.id,
     number: invoice.number,
     description: invoice.description,
+    notes: invoice.notes,
     amount: invoice.amount.toFixed(2),
     /** Quanto já entrou — permite a tela mostrar pagamento parcial. */
     paidAmount: fromCents(paidCents),
@@ -291,6 +302,7 @@ export async function createInvoice(input: CreateInvoiceInput, user: Authenticat
         contractId: input.contractId ?? null,
         number: input.number,
         description: input.description ?? null,
+        notes: input.notes ?? null,
         amount: input.amount,
         issueDate: isoDateToUtc(input.issueDate),
         dueDate: isoDateToUtc(input.dueDate),
@@ -460,6 +472,7 @@ export async function updateInvoice(
   }
   if (input.number !== undefined) data.number = input.number;
   if (input.description !== undefined) data.description = input.description;
+  if (input.notes !== undefined) data.notes = input.notes;
   if (input.amount !== undefined) data.amount = input.amount;
   if (input.issueDate !== undefined) data.issueDate = isoDateToUtc(input.issueDate);
   if (input.dueDate !== undefined) data.dueDate = isoDateToUtc(input.dueDate);

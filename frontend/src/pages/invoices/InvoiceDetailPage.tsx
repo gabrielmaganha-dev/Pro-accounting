@@ -20,6 +20,7 @@ import { ErrorState } from '@/components/common/ErrorState';
 import { SummaryTile } from '@/components/common/SummaryTile';
 import { TableSkeleton } from '@/components/common/TableSkeleton';
 import { ContractStatusBadge } from '@/components/contracts/ContractStatusBadge';
+import { InvoicePdfMenu } from '@/components/invoices/InvoicePdfMenu';
 import { InvoiceStatusBadge } from '@/components/invoices/InvoiceStatusBadge';
 import { RegisterPaymentDialog } from '@/components/invoices/RegisterPaymentDialog';
 import {
@@ -165,6 +166,8 @@ export function InvoiceDetailPage() {
             </Button>
           )}
 
+          <InvoicePdfMenu invoice={invoice} />
+
           {!isCancelled && (
             <Button variant="outline" asChild>
               <Link to={`/faturas/${invoice.id}/editar`}>Editar</Link>
@@ -266,6 +269,10 @@ export function InvoiceDetailPage() {
 
               <div className="sm:col-span-2 lg:col-span-3">
                 <Field label="Descrição" value={invoice.description} multiline />
+              </div>
+
+              <div className="sm:col-span-2 lg:col-span-3">
+                <Field label="Observação (sai na fatura em PDF)" value={invoice.notes} multiline />
               </div>
             </CardContent>
           </Card>

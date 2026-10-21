@@ -2,6 +2,7 @@ import { ClientStatus, type Prisma } from '@prisma/client';
 
 import { prisma } from '../../config/prisma.js';
 import { utcToIsoDate } from '../../utils/date.js';
+import { formatCpfCnpj } from '../../utils/document.js';
 import { countSummary, dateRange } from '../helpers.js';
 import type { ReportDefinition, ReportFilters, ReportResult } from '../types.js';
 
@@ -42,25 +43,6 @@ const SELECT = {
 
 type Row = Prisma.ClientGetPayload<{ select: typeof SELECT }>;
 
-/**
- * Máscara de CPF/CNPJ.
- *
- * O banco guarda só dígitos — decisão do módulo de clientes, para não quebrar
- * busca e unicidade. Quem recebe a planilha, porém, espera o documento
- * formatado: `11222333000181` não é conferível a olho.
- */
-function maskDocument(digits: string): string {
-  if (digits.length === 11) {
-    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
-  }
-
-  if (digits.length === 14) {
-    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
-  }
-
-  return digits;
-}
-
 function maskPhone(digits: string | null): string | null {
   if (!digits) return null;
   if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
@@ -72,7 +54,7 @@ function toRow(client: Row) {
   return {
     name: client.name,
     companyName: client.companyName,
-    document: maskDocument(client.cpfCnpj),
+    document: formatCpfCnpj(client.cpfCnpj),
     email: client.email,
     phone: maskPhone(client.phone),
     city: client.city,

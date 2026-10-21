@@ -96,6 +96,9 @@ export const createInvoiceSchema = z
 
     description: optionalText(255),
 
+    /** Impressa no campo "Observação" da fatura em PDF. */
+    notes: optionalText(500),
+
     amount: moneySchema('valor'),
 
     issueDate: isoDateSchema,
@@ -119,6 +122,18 @@ export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export const updateInvoiceSchema = createInvoiceSchema.innerType().partial();
 
 export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
+
+/**
+ * Fatura em PDF: `attachment` baixa o arquivo; `inline` é para o navegador
+ * exibir (visualizar e imprimir).
+ */
+export const invoicePdfQuerySchema = z.object({
+  disposition: z
+    .enum(['inline', 'attachment'], { invalid_type_error: 'Use inline ou attachment.' })
+    .default('attachment'),
+  /** Só rotula a auditoria: imprimir também abre o PDF em `inline`. */
+  purpose: z.enum(['print']).optional(),
+});
 
 /** Cancelar ou reabrir. PAID e OVERDUE não entram: não são decisão de usuário. */
 export const updateInvoiceStatusSchema = z.object({

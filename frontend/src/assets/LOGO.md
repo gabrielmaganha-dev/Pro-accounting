@@ -21,7 +21,12 @@ diretamente.
    que o navegador pede para o favicon nessas telas. Pronto quando os três arquivos existem
    com esses nomes e tamanhos.
 
-2. Só se mudar o formato (SVG, JPG, WEBP): troque as três linhas de `import` no topo de
+2. Atualize a cópia do `logo.png` que a fatura em PDF usa: na raiz do projeto, rode
+   `node scripts/sync-default-logo.mjs`. A fatura é desenhada no servidor, que não enxerga
+   esta pasta. Pronto quando o script imprime `default-logo.ts atualizado`; o teste
+   `backend/tests/unit/invoice-pdf.test.ts` falha enquanto as duas cópias forem diferentes.
+
+3. Só se mudar o formato (SVG, JPG, WEBP): troque as três linhas de `import` no topo de
    `Logo.tsx` e os atributos `type` e `href` do `<link rel="icon">` em `frontend/index.html`.
    Pronto quando, a partir de `frontend/`,
    `grep -rn "assets/logo" index.html src --include=*.tsx --include=*.html` só mostra os
@@ -29,10 +34,11 @@ diretamente.
    menu) e converta textos em `<path>` (uma fonte própria não existe na máquina de quem abre
    o sistema).
 
-3. Confira: `npm run build --prefix frontend` falha se um import aponta para arquivo
+4. Confira: `npm run build --prefix frontend` falha se um import aponta para arquivo
    inexistente. Depois abra `/login` (logo completo no formulário, versão branca no painel
-   azul) e veja a aba do navegador. Pronto quando o build passa e as duas telas mostram o
-   logo novo; se mostrarem outro, veja o primeiro item abaixo.
+   azul), veja a aba do navegador e gere o PDF de uma fatura (Faturas → ícone de documento →
+   Visualizar). Pronto quando o build passa e as três mostram o logo novo; se mostrarem
+   outro, veja o primeiro item abaixo.
 
 ## Quando algo não bate
 
@@ -43,6 +49,13 @@ diretamente.
   porque o envio é de um arquivo só (o motivo está no comentário de `Logo.tsx`). Para o
   menu ficar legível, o logo enviado precisa funcionar sobre fundo escuro.
 - **O favicon não acompanha o envio:** `index.html` aponta sempre para `logo-mark.png`.
+- **A fatura em PDF saiu com o logo antigo:** faltou o passo 2.
+- **Um logo enviado em SVG ou WEBP não aparece na fatura em PDF:** o PDF só embute PNG e
+  JPEG, e no lugar do logo sai o nome da empresa. Para o logo sair na fatura, envie PNG ou
+  JPEG em Configurações → Identidade visual.
+- **Um PNG com mais de 2000 px de lado é recusado no envio:** a fatura em PDF decodifica a
+  imagem inteira, e uma de 4000 px já leva 2 s por fatura. Reduza o arquivo (o logo sai
+  com 2,5 cm de largura na fatura; 1000 px sobram).
 - **As cores da interface não vêm do arquivo do logo.** A cor primária é escolhida em
   Configurações → Identidade visual, e `src/lib/theme.ts` deriva dela a rampa `brand-*`;
   é ali que se casa a cor com o logo, e a tela avisa quando o contraste com texto branco
