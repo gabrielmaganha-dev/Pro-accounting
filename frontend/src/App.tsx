@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 
@@ -23,6 +24,7 @@ export default function App() {
         <AuthProvider>
           <AppRoutes />
           <Toaster />
+          <Analytics />
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
